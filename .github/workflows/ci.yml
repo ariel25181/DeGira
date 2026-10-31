@@ -69,3 +69,30 @@ jobs:
             done; } > ci-fail.md
           head -c 60000 ci-fail.md > ci-fail-short.md
           gh pr comment ${{ github.event.pull_request.number }} --body-file ci-fail-short.md
+
+  # Publica el sitio (GitHub Pages sirve la rama gh-pages) solo cuando main pasó todas las pruebas.
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: deploy-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Compilar
+        run: bun run build
+        env:
+          # Clave pública para las notificaciones push (Settings > Secrets and variables > Actions > Variables)
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      - name: Publicar en gh-pages
+        shell: bash
+        run: bash scripts/publicar-gh-pages.sh
+
