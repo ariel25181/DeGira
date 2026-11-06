@@ -100,6 +100,15 @@ else
   fi
 fi
 
+# Si es un repositorio recién inicializado, traer el historial remoto para evitar conflictos
+if ! git rev-parse HEAD >/dev/null 2>&1; then
+  echo "📥 Sincronizando historial previo con origin/$BRANCH..."
+  git fetch origin "$BRANCH" --depth=1 2>/dev/null || true
+  if git rev-parse "origin/$BRANCH" >/dev/null 2>&1; then
+    git reset origin/"$BRANCH" >/dev/null 2>&1 || true
+  fi
+fi
+
 # 3. Verificación previa de tipos y compilación (a menos que use --no-verify)
 if [ "$NO_VERIFY" -eq 0 ]; then
   echo "🔍 Verificando tipos con TypeScript..."
