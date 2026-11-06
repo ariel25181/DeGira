@@ -75,6 +75,32 @@ Solo los bares y músicos que hayan acordado y completado una fecha pueden calif
 
 ---
 
+## 🚀 Utilidad para hacer Push de Fixes a GitHub (`npm run push`)
+
+Para subir cambios y fixes rápidamente a GitHub con verificación automática:
+
+```bash
+# Subir fixes rápidamente con mensaje automático:
+npm run push
+
+# Subir fixes con mensaje de commit personalizado:
+npm run push -- "fix: selector de perfiles y tour guiado"
+
+# Subir a main y publicar de inmediato en GitHub Pages (gh-pages):
+npm run push:pages
+
+# Push forzado seguro (--force-with-lease):
+npm run push:force
+```
+
+**¿Qué hace automáticamente?**
+1. **Verificación previa:** Valida los tipos de TypeScript (`npm run lint`) y comprueba la compilación de producción (`npm run build`) para asegurar que no se suban errores al repositorio.
+2. **Commit inteligente:** Si no se especifica un mensaje, crea uno con la fecha y hora actual; si no hay archivos modificados, avisa sin romper el proceso.
+3. **Push a `main`:** Envía los commits a `https://github.com/ariel25181/SuenaBA.git`. Si hay cambios remotos, sincroniza con `fetch/rebase` automáticamente.
+4. **Deploy a GitHub Pages:** Con `npm run push:pages`, también actualiza la rama `gh-pages` para reflejar los cambios en `https://ariel25181.github.io/SuenaBA/`.
+
+---
+
 ## 📱 Subir este proyecto a un nuevo repositorio de GitHub
 
 Para vincular este proyecto a tu cuenta personal de GitHub:

@@ -20,14 +20,29 @@ import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
 import { SessionProvider } from './context/SessionContext.tsx';
 import { ReservasApp } from './components/reservas/ReservasApp.tsx';
 
-import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed } from './types/index.ts';
-import { Wifi, Battery, Signal, Sparkles } from 'lucide-react';
+import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole } from './types/index.ts';
+import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw } from 'lucide-react';
+import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
+import { ActivityToolbar, RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 
 function MainApp() {
-  const { role, currentMusician, currentVenue } = useApp();
+  const { role, setRole, currentMusician, currentVenue } = useApp();
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<string>('cartelera');
+
+  // Onboarding flow state: first-time visitors or role switchers
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem('suenaba:onboarding_completed:v1');
+    } catch {
+      return false;
+    }
+  });
+  const [isTourOnly, setIsTourOnly] = useState<boolean>(false);
+
+  // Icon menu modal state
+  const [isIconMenuOpen, setIsIconMenuOpen] = useState<boolean>(false);
 
   // Mobile frame simulator toggle
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -103,6 +118,26 @@ function MainApp() {
     setViewingTarget(null);
   };
 
+  const handleOnboardingComplete = (chosenRole: UserRole) => {
+    setRole(chosenRole);
+    setIsOnboardingOpen(false);
+    setIsTourOnly(false);
+    const defaultTab = chosenRole === 'espectador' ? 'cartelera' : 'convocatorias';
+    setActiveTab(defaultTab);
+    // Open the icon menu after the tour so the user sees the role options!
+    setIsIconMenuOpen(true);
+  };
+
+  const handleRestartTour = () => {
+    setIsTourOnly(true);
+    setIsOnboardingOpen(true);
+  };
+
+  const handleRestartOnboarding = () => {
+    setIsTourOnly(false);
+    setIsOnboardingOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-start items-center p-0 md:p-4 selection:bg-amber-500 selection:text-slate-950 font-sans">
       {/* Device frame container or responsive container */}
@@ -127,40 +162,66 @@ function MainApp() {
           </div>
         )}
 
-        {/* Global Sticky Header with Role Switcher */}
+        {/* Global Sticky Header with Role Switcher & Icon Menu trigger */}
         <Header
           isMobileFrame={isMobileFrame}
           setIsMobileFrame={setIsMobileFrame}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onSelectTab={setActiveTab}
+          onOpenIconMenu={() => setIsIconMenuOpen(true)}
+          onRestartTour={handleRestartTour}
+          onChangeRole={handleRestartOnboarding}
         />
 
         {/* PWA In-App Install Prompt Banner */}
         <PWAInstallBanner />
 
         {/* Current Active Role Badge bar */}
-        <div className="bg-slate-900/60 border-b border-slate-800/60 px-4 py-1.5 flex items-center justify-between text-[11px] text-slate-400">
+        <div className="bg-slate-900/80 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400 gap-2">
           <div className="flex items-center space-x-1.5 truncate">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>Operando como:</span>
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="hidden xs:inline">Operando como:</span>
             <strong className="text-slate-200 truncate">
               {role === 'musico'
                 ? currentMusician?.stageName
                 : role === 'bar'
                 ? currentVenue?.name
-                : 'Público General en Buenos Aires'}
+                : 'Público General'}
             </strong>
           </div>
-          <button
-            onClick={() => {
-              setActiveTab('perfil');
-              setViewingTarget(null);
-            }}
-            className="text-amber-400 hover:text-amber-300 font-semibold shrink-0 ml-2"
-          >
-            {role === 'musico' ? 'Mi Perfil' : role === 'bar' ? 'Mi Bar' : 'Ver'}
-          </button>
+
+          <div className="flex items-center space-x-1.5 shrink-0">
+            {/* Icon menu trigger button */}
+            <button
+              onClick={() => setIsIconMenuOpen(true)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 font-bold transition-colors"
+              title="Abrir menú de opciones del rol"
+            >
+              <LayoutGrid className="w-3 h-3" />
+              <span>Opciones</span>
+            </button>
+
+            {/* Profile switch / Change role trigger */}
+            <button
+              onClick={handleRestartOnboarding}
+              className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              title="Cambiar de perfil"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          </div>
         </div>
+
+        {/* Role Activity Toolbar: Forward and Backward navigation across available activities */}
+        <ActivityToolbar
+          role={role}
+          activeTab={activeTab}
+          onSelectTab={(tabId) => {
+            setActiveTab(tabId);
+            setViewingTarget(null);
+          }}
+          onOpenIconMenu={() => setIsIconMenuOpen(true)}
+        />
 
         {/* Main Tab Content View */}
         <main className="flex-1 p-4 overflow-y-auto">
@@ -265,6 +326,29 @@ function MainApp() {
         onClose={() => setIsNotificationsOpen(false)}
         onNavigateToTab={setActiveTab}
       />
+
+      {/* Role Icon Menu Modal (Dashboard of options for the role) */}
+      <RoleIconMenuModal
+        isOpen={isIconMenuOpen}
+        onClose={() => setIsIconMenuOpen(false)}
+        role={role}
+        activeTab={activeTab}
+        onSelectTab={(tabId) => {
+          setActiveTab(tabId);
+          setViewingTarget(null);
+        }}
+        onRestartTour={handleRestartTour}
+        onChangeRole={handleRestartOnboarding}
+      />
+
+      {/* Full Onboarding Flow: 1. Role Selection -> 2. Auth Gate -> 3. Guided Tour -> 4. Icon Menu */}
+      {isOnboardingOpen && (
+        <OnboardingFlow
+          onComplete={handleOnboardingComplete}
+          initialRole={role}
+          startAtTour={isTourOnly}
+        />
+      )}
     </div>
   );
 }

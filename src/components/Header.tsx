@@ -8,6 +8,8 @@ import {
   Maximize2,
   ChevronDown,
   Sparkles,
+  LayoutGrid,
+  HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { UserRole } from '../types/index.ts';
@@ -17,6 +19,9 @@ interface HeaderProps {
   setIsMobileFrame: (val: boolean) => void;
   onOpenNotifications: () => void;
   onSelectTab: (tab: string) => void;
+  onOpenIconMenu?: () => void;
+  onRestartTour?: () => void;
+  onChangeRole?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,6 +29,9 @@ export const Header: React.FC<HeaderProps> = ({
   setIsMobileFrame,
   onOpenNotifications,
   onSelectTab,
+  onOpenIconMenu,
+  onRestartTour,
+  onChangeRole,
 }) => {
   const { role, setRole, currentMusician, currentVenue, notifications } = useApp();
 
@@ -94,8 +102,30 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Right tools: Notifications & Frame toggle */}
+        {/* Right tools: Icon Menu, Notifications & Frame toggle */}
         <div className="flex items-center space-x-1.5">
+          {/* Menu of Options / Activities icon button */}
+          {onOpenIconMenu && (
+            <button
+              onClick={onOpenIconMenu}
+              title="Ver menú de iconos con opciones del rol"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Guided Tour trigger */}
+          {onRestartTour && (
+            <button
+              onClick={onRestartTour}
+              title="Repetir tour guiado"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Mobile frame toggle (desktop only) */}
           <button
             onClick={() => setIsMobileFrame(!isMobileFrame)}
