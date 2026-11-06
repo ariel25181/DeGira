@@ -16,6 +16,8 @@ import {
   RotateCcw,
   RefreshCw,
   LucideIcon,
+  Share2,
+  Wrench,
 } from 'lucide-react';
 import { UserRole } from '../../types/index.ts';
 
@@ -321,6 +323,8 @@ interface RoleIconMenuModalProps {
   onSelectTab: (tabId: string) => void;
   onRestartTour: () => void;
   onChangeRole: () => void;
+  onOpenShare?: () => void;
+  onOpenFeedback?: () => void;
 }
 
 /**
@@ -336,6 +340,8 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
   onSelectTab,
   onRestartTour,
   onChangeRole,
+  onOpenShare,
+  onOpenFeedback,
 }) => {
   if (!isOpen) return null;
 
@@ -380,7 +386,7 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
         </div>
 
         {/* Activity Cards Grid */}
-        <div className="p-4 sm:p-5 space-y-2.5 max-h-[65vh] overflow-y-auto">
+        <div className="p-4 sm:p-5 space-y-2.5 max-h-[60vh] overflow-y-auto">
           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1">
             Navegá hacia adelante o atrás en tus actividades:
           </p>
@@ -446,29 +452,61 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
           </div>
         </div>
 
-        {/* Footer actions: Repetir tour & Cambiar perfil */}
+        {/* Footer actions: Repetir tour, Cambiar perfil, Compartir, Feedback */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/70 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <button
-            onClick={() => {
-              onClose();
-              onRestartTour();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span>Repetir Tour Guiado</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                onClose();
+                onRestartTour();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Tour</span>
+            </button>
 
-          <button
-            onClick={() => {
-              onClose();
-              onChangeRole();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-semibold transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
-            <span>Cambiar de Perfil</span>
-          </button>
+            <button
+              onClick={() => {
+                onClose();
+                onChangeRole();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-300 font-semibold transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+              <span>Cambiar Rol</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onOpenShare && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenShare();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold transition-colors"
+                title="Compartir SuenaBA"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Compartir</span>
+              </button>
+            )}
+
+            {onOpenFeedback && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenFeedback();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition-colors"
+                title="Reportar bug o sugerir mejoras"
+              >
+                <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                <span>Feedback</span>
+              </button>
+            )}
+          </div>
         </div>
 
       </div>

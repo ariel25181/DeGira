@@ -16,12 +16,14 @@ import { DirectOfferModal } from './components/modals/DirectOfferModal.tsx';
 import { ShowDetailModal } from './components/modals/ShowDetailModal.tsx';
 import { ReviewModal } from './components/modals/ReviewModal.tsx';
 import { NotificationsDrawer } from './components/modals/NotificationsDrawer.tsx';
+import { ShareModal } from './components/modals/ShareModal.tsx';
+import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
 import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
 import { SessionProvider } from './context/SessionContext.tsx';
 import { ReservasApp } from './components/reservas/ReservasApp.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole } from './types/index.ts';
-import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw } from 'lucide-react';
+import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench } from 'lucide-react';
 import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { ActivityToolbar, RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 
@@ -43,6 +45,10 @@ function MainApp() {
 
   // Icon menu modal state
   const [isIconMenuOpen, setIsIconMenuOpen] = useState<boolean>(false);
+
+  // Share and Feedback modal states
+  const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
 
   // Mobile frame simulator toggle
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -171,6 +177,8 @@ function MainApp() {
           onOpenIconMenu={() => setIsIconMenuOpen(true)}
           onRestartTour={handleRestartTour}
           onChangeRole={handleRestartOnboarding}
+          onOpenShare={() => setIsShareOpen(true)}
+          onOpenFeedback={() => setIsFeedbackOpen(true)}
         />
 
         {/* PWA In-App Install Prompt Banner */}
@@ -339,6 +347,8 @@ function MainApp() {
         }}
         onRestartTour={handleRestartTour}
         onChangeRole={handleRestartOnboarding}
+        onOpenShare={() => setIsShareOpen(true)}
+        onOpenFeedback={() => setIsFeedbackOpen(true)}
       />
 
       {/* Full Onboarding Flow: 1. Role Selection -> 2. Auth Gate -> 3. Guided Tour -> 4. Icon Menu */}
@@ -349,6 +359,20 @@ function MainApp() {
           startAtTour={isTourOnly}
         />
       )}
+
+      {/* Share App Modal */}
+      <ShareModal
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+      />
+
+      {/* Feedback & Bug Reporting Modal (Wrench tool) */}
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+        currentRole={role}
+        currentTab={activeTab}
+      />
     </div>
   );
 }

@@ -10,6 +10,8 @@ import {
   Sparkles,
   LayoutGrid,
   HelpCircle,
+  Share2,
+  Wrench,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { UserRole } from '../types/index.ts';
@@ -22,6 +24,8 @@ interface HeaderProps {
   onOpenIconMenu?: () => void;
   onRestartTour?: () => void;
   onChangeRole?: () => void;
+  onOpenShare?: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,6 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenIconMenu,
   onRestartTour,
   onChangeRole,
+  onOpenShare,
+  onOpenFeedback,
 }) => {
   const { role, setRole, currentMusician, currentVenue, notifications } = useApp();
 
@@ -123,6 +129,30 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
             >
               <HelpCircle className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Share app button */}
+          {onOpenShare && (
+            <button
+              onClick={onOpenShare}
+              title="Compartir SuenaBA con amigos o músicos"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
+              aria-label="Compartir app"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Feedback / Bug tool icon button (Wrench) */}
+          {onOpenFeedback && (
+            <button
+              onClick={onOpenFeedback}
+              title="Reportar bug, sugerir mejora o dar feedback"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
+              aria-label="Reportar bug o feedback"
+            >
+              <Wrench className="w-4 h-4" />
             </button>
           )}
 
