@@ -193,10 +193,45 @@ describe('ActivityToolbar & RoleIconMenuModal', () => {
     assert.strictEqual(selected, 'reservas');
 
     // Test actions
-    fireEvent.click(screen.getByText('Repetir Tour Guiado'));
+    fireEvent.click(screen.getByText('Tour'));
     assert.strictEqual(tourRestarted, true);
 
-    fireEvent.click(screen.getByText('Cambiar de Perfil'));
+    fireEvent.click(screen.getByText('Cambiar Rol'));
     assert.strictEqual(roleChanged, true);
+  });
+
+  it('renders Compartir and Feedback buttons in OnboardingFlow and triggers callbacks', async () => {
+    let shareTriggered = false;
+    let feedbackTriggered = false;
+
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <OnboardingFlow
+            onComplete={() => {}}
+            onOpenShare={() => { shareTriggered = true; }}
+            onOpenFeedback={() => { feedbackTriggered = true; }}
+          />
+        </SessionProvider>
+      );
+    });
+
+    // Verify share elements are visible on Step 1
+    screen.getByText('¿Querés invitar a tu banda, colegas o un bar?');
+    const shareBtns = screen.getAllByRole('button', { name: /Compartir/i });
+    assert.ok(shareBtns.length >= 2, 'Should have header and card share buttons');
+
+    // Click share button
+    await act(async () => {
+      fireEvent.click(shareBtns[0]);
+    });
+    assert.strictEqual(shareTriggered, true);
+
+    // Click feedback button
+    const feedbackBtn = screen.getByRole('button', { name: /Reportar bug o enviar feedback/i });
+    await act(async () => {
+      fireEvent.click(feedbackBtn);
+    });
+    assert.strictEqual(feedbackTriggered, true);
   });
 });

@@ -357,6 +357,8 @@ function MainApp() {
           onComplete={handleOnboardingComplete}
           initialRole={role}
           startAtTour={isTourOnly}
+          onOpenShare={() => setIsShareOpen(true)}
+          onOpenFeedback={() => setIsFeedbackOpen(true)}
         />
       )}
 

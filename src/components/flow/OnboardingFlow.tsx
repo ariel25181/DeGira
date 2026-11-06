@@ -17,6 +17,9 @@ import {
   HelpCircle,
   ShieldCheck,
   Zap,
+  Share2,
+  Wrench,
+  X,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
 import { TOUR, TourStep } from '../../content/tour.ts';
@@ -26,6 +29,8 @@ interface OnboardingFlowProps {
   onComplete: (role: UserRole) => void;
   initialRole?: UserRole;
   startAtTour?: boolean;
+  onOpenShare?: () => void;
+  onOpenFeedback?: () => void;
 }
 
 type FlowStep = 'profile_select' | 'auth' | 'tour';
@@ -34,6 +39,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   onComplete,
   initialRole,
   startAtTour = false,
+  onOpenShare,
+  onOpenFeedback,
 }) => {
   const { signIn, signUp, state } = useSession();
 
@@ -122,18 +129,47 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-3 sm:p-4 overflow-y-auto">
       <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
 
-        {/* Top Progress indicator bar */}
-        <div className="px-6 pt-5 pb-3 border-b border-slate-800/80 bg-slate-950/60">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-semibold text-amber-400 flex items-center gap-1.5">
+        {/* Top Progress indicator bar with quick actions */}
+        <div className="px-5 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-slate-800/80 bg-slate-950/60">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2 gap-2">
+            <span className="font-semibold text-amber-400 flex items-center gap-1.5 shrink-0">
               <Sparkles className="w-3.5 h-3.5" />
               SuenaBA • Bienvenida
             </span>
-            <span className="font-medium">
-              {step === 'profile_select' && 'Paso 1 de 3: Selección de Perfil'}
-              {step === 'auth' && 'Paso 2 de 3: Ingreso a la Cuenta'}
-              {step === 'tour' && `Paso 3 de 3: Tour Guiado (${tourIndex + 1}/${tourSteps.length})`}
-            </span>
+
+            {/* Quick utility buttons: Compartir and Feedback */}
+            <div className="flex items-center gap-1.5">
+              {onOpenShare && (
+                <button
+                  type="button"
+                  onClick={onOpenShare}
+                  aria-label="Compartir app"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 text-[11px] font-bold transition-all active:scale-95"
+                  title="Compartir SuenaBA con amigos o músicos"
+                >
+                  <Share2 className="w-3 h-3 stroke-[2.2]" />
+                  <span>Compartir</span>
+                </button>
+              )}
+
+              {onOpenFeedback && (
+                <button
+                  type="button"
+                  onClick={onOpenFeedback}
+                  aria-label="Reportar bug o enviar feedback"
+                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-amber-400 transition-colors"
+                  title="Reportar bug, sugerir mejora o dar feedback"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <span className="font-medium text-slate-400 hidden sm:inline ml-1">
+                {step === 'profile_select' && 'Paso 1 de 3: Selección de Perfil'}
+                {step === 'auth' && 'Paso 2 de 3: Ingreso a la Cuenta'}
+                {step === 'tour' && `Paso 3 de 3: Tour Guiado (${tourIndex + 1}/${tourSteps.length})`}
+              </span>
+            </div>
           </div>
 
           <div className="flex gap-1.5 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -233,6 +269,59 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </div>
                 <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-1 transition-all shrink-0 self-center" />
               </button>
+            </div>
+
+            {/* Banner destacado: Compartir la App con otros usuarios */}
+            <div className="pt-2">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-slate-950/80 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg shadow-amber-500/5">
+                <div className="flex items-center gap-3 text-left w-full sm:w-auto">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 shrink-0">
+                    <Share2 className="w-5 h-5 stroke-[2.5]" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                      <span>¿Querés invitar a tu banda, colegas o un bar?</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Compartí el enlace por WhatsApp, Telegram, X o código QR
+                    </p>
+                  </div>
+                </div>
+
+                {onOpenShare && (
+                  <button
+                    type="button"
+                    onClick={onOpenShare}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition-all shrink-0 active:scale-95"
+                  >
+                    <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Compartir app</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Acciones secundarias: explorar sin configurar y feedback */}
+            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 px-1">
+              <button
+                type="button"
+                onClick={() => handleSelectRole('espectador')}
+                className="hover:text-amber-400 transition-colors flex items-center gap-1 font-medium"
+              >
+                <span>Explorar cartelera sin cuenta</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+
+              {onOpenFeedback && (
+                <button
+                  type="button"
+                  onClick={onOpenFeedback}
+                  className="hover:text-amber-400 flex items-center gap-1 transition-colors text-slate-400 font-medium"
+                >
+                  <Wrench className="w-3 h-3" />
+                  <span>Reportar bug / Feedback</span>
+                </button>
+              )}
             </div>
           </div>
         )}
