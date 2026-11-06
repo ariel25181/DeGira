@@ -96,7 +96,7 @@ export interface AuthClient {
   getSession(): Promise<{ data: { session: { user: { id: string; email?: string } } | null } }>;
   onAuthStateChange(cb: (event: string, session: { user: { id: string; email?: string } } | null) => void): { data: { subscription: { unsubscribe(): void } } };
   signInWithPassword(c: { email: string; password: string }): Promise<{ error: { message: string } | null }>;
-  signUp(c: { email: string; password: string }): Promise<{ error: { message: string } | null; data?: { session: unknown | null } }>;
+  signUp(c: { email: string; password: string; options?: { emailRedirectTo?: string; data?: Record<string, unknown> } }): Promise<{ error: { message: string } | null; data?: { session: unknown | null } }>;
   signOut(): Promise<unknown>;
 }
 export interface AppClient extends RpcClient { auth: AuthClient }

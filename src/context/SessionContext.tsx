@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createBookingsApi, bookingsApi as defaultApi, type AppClient, type Profile, type ProfileRequest } from '../lib/bookingsApi.ts';
 import { supabase } from '../lib/supabaseClient.ts';
+import { resolveAuthRedirectUrl } from '../lib/authRedirect.ts';
 
 export type SessionState =
   | { status: 'loading' }
@@ -52,7 +53,14 @@ export const SessionProvider: React.FC<{ client?: AppClient; children: React.Rea
     state, api, refresh,
     signIn: async (email, password) => { const { error } = await c.auth.signInWithPassword({ email, password }); if (!error) await refresh(); return error ? 'Email o contraseña incorrectos.' : null; },
     signUp: async (email, password) => {
-      const { error, data } = await c.auth.signUp({ email, password });
+      const emailRedirectTo = resolveAuthRedirectUrl();
+      const { error, data } = await c.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo,
+        },
+      });
       if (error) return error.message.includes('registered') ? 'Ese email ya tiene una cuenta. Probá iniciar sesión.' : 'No pudimos crear la cuenta. Revisá el email y usá una contraseña de 6+ caracteres.';
       if (data && !data.session) return 'Te enviamos un email para confirmar la cuenta. Después iniciá sesión.';
       await refresh(); return null;
