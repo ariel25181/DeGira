@@ -19,16 +19,17 @@ import { NotificationsDrawer } from './components/modals/NotificationsDrawer.tsx
 import { ShareModal } from './components/modals/ShareModal.tsx';
 import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
 import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
-import { SessionProvider } from './context/SessionContext.tsx';
+import { SessionProvider, useSession } from './context/SessionContext.tsx';
 import { ReservasApp } from './components/reservas/ReservasApp.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole } from './types/index.ts';
-import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench } from 'lucide-react';
+import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench, LogOut } from 'lucide-react';
 import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { ActivityToolbar, RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 
 function MainApp() {
-  const { role, setRole, currentMusician, currentVenue, userDisplayName } = useApp();
+  const { role, setRole, currentMusician, currentVenue, userDisplayName, setUserDisplayName, logout } = useApp();
+  const { signOut } = useSession();
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<string>('cartelera');
@@ -144,6 +145,20 @@ function MainApp() {
     setIsOnboardingOpen(true);
   };
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch {}
+    try {
+      localStorage.removeItem('suenaba:logged_user_name');
+      localStorage.removeItem('suenaba:onboarding_completed:v1');
+    } catch {}
+    setUserDisplayName('Usuario Público 1');
+    setRole('espectador');
+    setIsTourOnly(false);
+    setIsOnboardingOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-start items-center p-0 md:p-4 selection:bg-amber-500 selection:text-slate-950 font-sans">
       {/* Device frame container or responsive container */}
@@ -179,6 +194,7 @@ function MainApp() {
           onChangeRole={handleRestartOnboarding}
           onOpenShare={() => setIsShareOpen(true)}
           onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onSignOut={handleSignOut}
         />
 
         {/* PWA In-App Install Prompt Banner */}
@@ -220,6 +236,17 @@ function MainApp() {
               title="Cambiar de perfil"
             >
               <RefreshCw className="w-3 h-3" />
+            </button>
+
+            {/* Cerrar sesión trigger */}
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 font-bold text-[11px] transition-colors"
+              title="Cerrar sesión e ir a selección de cuenta"
+              aria-label="Cerrar sesión"
+            >
+              <LogOut className="w-3 h-3" />
+              <span className="hidden xs:inline">Salir</span>
             </button>
           </div>
         </div>
@@ -279,6 +306,7 @@ function MainApp() {
               onClearTarget={handleClearViewingTarget}
               onOpenReviewModal={handleOpenReviewModal}
               onSelectTab={setActiveTab}
+              onSignOut={handleSignOut}
             />
           )}
         </main>
@@ -359,6 +387,7 @@ function MainApp() {
         onChangeRole={handleRestartOnboarding}
         onOpenShare={() => setIsShareOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
+        onSignOut={handleSignOut}
       />
 
       {/* Full Onboarding Flow: 1. Role Selection -> 2. Auth Gate -> 3. Guided Tour -> 4. Icon Menu */}
@@ -369,6 +398,7 @@ function MainApp() {
           startAtTour={isTourOnly}
           onOpenShare={() => setIsShareOpen(true)}
           onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onClose={() => setIsOnboardingOpen(false)}
         />
       )}
 

@@ -133,4 +133,27 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
     });
     assert.strictEqual(navigatedToProfile, true);
   });
+
+  it('renders Cerrar sesión button and triggers onSignOut callback', async () => {
+    let signedOut = false;
+    localStorage.setItem('suena_ba_v3_role', 'espectador');
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <ProfileView onSignOut={() => { signedOut = true; }} />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    const logoutButtons = screen.getAllByRole('button', { name: /Cerrar sesión/i });
+    assert.ok(logoutButtons.length >= 1);
+
+    await act(async () => {
+      fireEvent.click(logoutButtons[0]);
+    });
+    assert.strictEqual(signedOut, true);
+  });
 });

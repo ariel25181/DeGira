@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Share2,
   Wrench,
+  LogOut,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { UserRole } from '../types/index.ts';
@@ -26,6 +27,7 @@ interface HeaderProps {
   onChangeRole?: () => void;
   onOpenShare?: () => void;
   onOpenFeedback?: () => void;
+  onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,6 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeRole,
   onOpenShare,
   onOpenFeedback,
+  onSignOut,
 }) => {
   const { role, setRole, currentMusician, currentVenue, notifications, userDisplayName } = useApp();
 
@@ -182,6 +185,18 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             )}
           </button>
+
+          {/* Cerrar sesión button */}
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

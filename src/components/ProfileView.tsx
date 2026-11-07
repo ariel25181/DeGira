@@ -24,6 +24,7 @@ import {
   ChevronRight,
   ArrowRight,
   UserCheck,
+  LogOut,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
@@ -34,6 +35,7 @@ interface ProfileViewProps {
   onClearTarget?: () => void;
   onOpenReviewModal?: (params: any) => void;
   onSelectTab?: (tab: string) => void;
+  onSignOut?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -41,6 +43,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onClearTarget,
   onOpenReviewModal,
   onSelectTab,
+  onSignOut,
 }) => {
   const {
     role,
@@ -186,6 +189,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               </div>
             </div>
+
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                title="Cerrar sesión"
+                className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Cerrar sesión</span>
+              </button>
+            )}
           </div>
 
           {/* Sub Navigation Tabs */}
@@ -567,6 +581,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <span>Restablecer Datos de Prueba</span>
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Cerrar sesión card */}
+        {onSignOut && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 flex items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                <LogOut className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-xs font-bold text-slate-200 truncate">
+                  Sesión iniciada como {userDisplayName}
+                </h4>
+                <p className="text-[11px] text-slate-400 truncate">
+                  Podés cerrar sesión para entrar con otra cuenta o cambiar de rol.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onSignOut}
+              className="px-3.5 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-400 hover:text-red-300 font-bold text-xs flex items-center gap-1.5 transition-colors shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Cerrar sesión</span>
+            </button>
           </div>
         )}
       </div>
@@ -994,6 +1034,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <span>Restablecer Datos Iniciales de Prueba</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Cerrar sesión card for Musician / Venue */}
+      {!viewingTarget && onSignOut && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 flex items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+              <LogOut className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-200 truncate">
+                Sesión iniciada como {userDisplayName}
+              </h4>
+              <p className="text-[11px] text-slate-400 truncate">
+                Podés cerrar sesión para ingresar con otra cuenta o cambiar de rol.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onSignOut}
+            className="px-3.5 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-400 hover:text-red-300 font-bold text-xs flex items-center gap-1.5 transition-colors shrink-0"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Cerrar sesión</span>
+          </button>
         </div>
       )}
     </div>

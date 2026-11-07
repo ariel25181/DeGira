@@ -33,7 +33,7 @@ export interface NotificationItem {
   message: string;
   timestamp: string;
   read: boolean;
-  type: 'application' | 'offer' | 'confirmed' | 'review';
+  type: 'application' | 'offer' | 'confirmed' | 'review' | 'system';
 }
 
 interface AppContextType {
@@ -80,6 +80,9 @@ interface AppContextType {
   createReservation: (data: Omit<SpectatorReservation, 'id' | 'createdAt'>) => SpectatorReservation;
   payReservation: (reservationId: string, mpPaymentId?: string) => void;
   cancelReservation: (reservationId: string) => void;
+
+  // Session & Authentication
+  logout: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -763,6 +766,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ]);
   };
 
+  const logout = () => {
+    try {
+      localStorage.removeItem('suenaba:logged_user_name');
+      localStorage.removeItem('suenaba:onboarding_completed:v1');
+    } catch {
+      // ignore
+    }
+    setStoredUserName('');
+    setNotifications((prev) => [
+      {
+        id: `notif-${Date.now()}`,
+        title: 'Sesión cerrada',
+        message: 'Has cerrado sesión exitosamente. Podés ingresar con otra cuenta o perfil cuando quieras.',
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed',
+      },
+      ...prev,
+    ]);
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -801,6 +825,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createReservation,
         payReservation,
         cancelReservation,
+        logout,
       }}
     >
       {children}

@@ -32,6 +32,7 @@ interface OnboardingFlowProps {
   startAtTour?: boolean;
   onOpenShare?: () => void;
   onOpenFeedback?: () => void;
+  onClose?: () => void;
 }
 
 type FlowStep = 'profile_select' | 'auth' | 'tour';
@@ -42,6 +43,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   startAtTour = false,
   onOpenShare,
   onOpenFeedback,
+  onClose,
 }) => {
   const { signIn, signUp, state } = useSession();
   let setUserDisplayName: ((name: string) => void) | undefined;
@@ -187,6 +189,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   title="Reportar bug, sugerir mejora o dar feedback"
                 >
                   <Wrench className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Cerrar ventana"
+                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors ml-1"
+                  title="Cerrar y continuar"
+                >
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
 

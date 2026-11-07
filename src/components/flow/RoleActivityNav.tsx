@@ -18,6 +18,7 @@ import {
   LucideIcon,
   Share2,
   Wrench,
+  LogOut,
 } from 'lucide-react';
 import { UserRole } from '../../types/index.ts';
 
@@ -325,6 +326,7 @@ interface RoleIconMenuModalProps {
   onChangeRole: () => void;
   onOpenShare?: () => void;
   onOpenFeedback?: () => void;
+  onSignOut?: () => void;
 }
 
 /**
@@ -342,6 +344,7 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
   onChangeRole,
   onOpenShare,
   onOpenFeedback,
+  onSignOut,
 }) => {
   if (!isOpen) return null;
 
@@ -504,6 +507,20 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
               >
                 <Wrench className="w-3.5 h-3.5 text-amber-400" />
                 <span>Feedback</span>
+              </button>
+            )}
+
+            {onSignOut && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onSignOut();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-400 hover:text-red-300 font-semibold transition-colors"
+                title="Cerrar sesión e ir a selección de cuenta"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Cerrar sesión</span>
               </button>
             )}
           </div>
