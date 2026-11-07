@@ -28,7 +28,7 @@ import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { ActivityToolbar, RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 
 function MainApp() {
-  const { role, setRole, currentMusician, currentVenue } = useApp();
+  const { role, setRole, currentMusician, currentVenue, userDisplayName } = useApp();
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<string>('cartelera');
@@ -184,18 +184,22 @@ function MainApp() {
         {/* PWA In-App Install Prompt Banner */}
         <PWAInstallBanner />
 
-        {/* Current Active Role Badge bar */}
-        <div className="bg-slate-900/80 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400 gap-2">
+        {/* Current Active Role Badge bar with user greeting */}
+        <div className="bg-slate-900/90 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400 gap-2">
           <div className="flex items-center space-x-1.5 truncate">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            <span className="hidden xs:inline">Operando como:</span>
-            <strong className="text-slate-200 truncate">
-              {role === 'musico'
-                ? currentMusician?.stageName
-                : role === 'bar'
-                ? currentVenue?.name
-                : 'Público General'}
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-amber-400 font-bold shrink-0">Bienvenido,</span>
+            <strong className="text-slate-100 font-black truncate max-w-[130px] sm:max-w-[220px]">
+              {userDisplayName}
             </strong>
+            <span className="text-slate-600 hidden xs:inline">•</span>
+            <span className="hidden xs:inline text-slate-400 text-[10px] uppercase font-semibold">
+              {role === 'musico'
+                ? 'Músico'
+                : role === 'bar'
+                ? 'Bar'
+                : 'Público General'}
+            </span>
           </div>
 
           <div className="flex items-center space-x-1.5 shrink-0">
@@ -274,6 +278,7 @@ function MainApp() {
               viewingTarget={viewingTarget}
               onClearTarget={handleClearViewingTarget}
               onOpenReviewModal={handleOpenReviewModal}
+              onSelectTab={setActiveTab}
             />
           )}
         </main>
@@ -316,6 +321,11 @@ function MainApp() {
         show={selectedShow}
         onViewVenueProfile={handleViewVenueProfile}
         onViewMusicianProfile={handleViewMusicianProfile}
+        onNavigateToProfile={() => {
+          setIsShowDetailModalOpen(false);
+          setActiveTab('perfil');
+          setViewingTarget(null);
+        }}
       />
 
       <ReviewModal

@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
+  INITIAL_VENUES,
+  INITIAL_MUSICIANS,
+  INITIAL_OPEN_CALLS,
+  INITIAL_MUSICIAN_AVAILABILITIES,
+  INITIAL_LIVE_SHOWS,
+  INITIAL_PUBLIC_USERS,
+  INITIAL_SPECTATOR_RESERVATIONS,
+} from '../data/seedData.ts';
+import {
   UserRole,
   VenueProfile,
   MusicianProfile,
@@ -11,14 +20,9 @@ import {
   DirectOffer,
   MusicGenre,
   NeighborhoodBA,
+  PublicUserProfile,
+  SpectatorReservation,
 } from '../types/index.ts';
-import {
-  INITIAL_VENUES,
-  INITIAL_MUSICIANS,
-  INITIAL_OPEN_CALLS,
-  INITIAL_MUSICIAN_AVAILABILITIES,
-  INITIAL_LIVE_SHOWS,
-} from '../data/seedData.ts';
 import { calculateNewRating, calculateNewBreakdown } from '../utils/bookingLogic.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { mapVenue, mapMusician, mapOpenCall, mapAvailability, mapLiveShow } from '../lib/supabaseMappers.ts';
@@ -39,16 +43,23 @@ interface AppContextType {
   setActiveMusicianId: (id: string) => void;
   activeVenueId: string;
   setActiveVenueId: (id: string) => void;
+  activePublicUserId: string;
+  setActivePublicUserId: (id: string) => void;
 
   venues: VenueProfile[];
   musicians: MusicianProfile[];
+  publicUsers: PublicUserProfile[];
   openCalls: VenueOpenCall[];
   musicianAvailabilities: MusicianAvailability[];
   liveShows: LiveShowConfirmed[];
   notifications: NotificationItem[];
+  reservations: SpectatorReservation[];
 
   currentMusician: MusicianProfile | undefined;
   currentVenue: VenueProfile | undefined;
+  currentPublicUser: PublicUserProfile | undefined;
+  userDisplayName: string;
+  setUserDisplayName: (name: string) => void;
 
   // Actions
   publishOpenCall: (callData: Omit<VenueOpenCall, 'id' | 'applications' | 'createdAt' | 'status'>) => void;
@@ -64,16 +75,34 @@ interface AppContextType {
   submitReview: (reviewData: Omit<Review, 'id' | 'createdAt'>, showIdToComplete?: string) => void;
   markNotificationsAsRead: () => void;
   resetAllData: () => void;
+
+  // Spectator & Mercado Pago Reservations
+  createReservation: (data: Omit<SpectatorReservation, 'id' | 'createdAt'>) => SpectatorReservation;
+  payReservation: (reservationId: string, mpPaymentId?: string) => void;
+  cancelReservation: (reservationId: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEY_PREFIX = 'suena_ba_v1_';
+const STORAGE_KEY_PREFIX = 'suena_ba_v3_';
+
+// Auto-clean stale legacy mock data from localStorage
+try {
+  const oldVenues = localStorage.getItem('suena_ba_v1_venues') || localStorage.getItem('suena_ba_v2_venues');
+  if (oldVenues && (oldVenues.includes('Thelonious') || oldVenues.includes('Café Berlín') || oldVenues.includes('Julieta'))) {
+    ['venues', 'musicians', 'openCalls', 'availabilities', 'liveShows', 'notifications'].forEach((key) => {
+      localStorage.removeItem(`suena_ba_v1_${key}`);
+      localStorage.removeItem(`suena_ba_v2_${key}`);
+    });
+  }
+} catch {
+  // ignore
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [role, setRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}role`);
-    return (saved as UserRole) || 'musico';
+    return (saved as UserRole) || 'espectador';
   });
 
   const [activeMusicianId, setActiveMusicianId] = useState<string>(() => {
@@ -84,29 +113,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return localStorage.getItem(`${STORAGE_KEY_PREFIX}activeVenueId`) || 'venue-1';
   });
 
+  const [activePublicUserId, setActivePublicUserId] = useState<string>(() => {
+    return localStorage.getItem(`${STORAGE_KEY_PREFIX}activePublicUserId`) || 'user-pub-1';
+  });
+
   const [venues, setVenues] = useState<VenueProfile[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}venues`);
-    return saved ? JSON.parse(saved) : INITIAL_VENUES;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((v: any) => v.name?.includes('Test'))) return parsed;
+      } catch {}
+    }
+    return INITIAL_VENUES;
   });
 
   const [musicians, setMusicians] = useState<MusicianProfile[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}musicians`);
-    return saved ? JSON.parse(saved) : INITIAL_MUSICIANS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((m: any) => m.stageName?.includes('Test'))) return parsed;
+      } catch {}
+    }
+    return INITIAL_MUSICIANS;
+  });
+
+  const [publicUsers, setPublicUsers] = useState<PublicUserProfile[]>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}publicUsers`);
+    return saved ? JSON.parse(saved) : INITIAL_PUBLIC_USERS;
   });
 
   const [openCalls, setOpenCalls] = useState<VenueOpenCall[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}openCalls`);
-    return saved ? JSON.parse(saved) : INITIAL_OPEN_CALLS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((c: any) => c.venueName?.includes('Test'))) return parsed;
+      } catch {}
+    }
+    return INITIAL_OPEN_CALLS;
   });
 
   const [musicianAvailabilities, setMusicianAvailabilities] = useState<MusicianAvailability[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}availabilities`);
-    return saved ? JSON.parse(saved) : INITIAL_MUSICIAN_AVAILABILITIES;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((a: any) => a.musicianName?.includes('Test'))) return parsed;
+      } catch {}
+    }
+    return INITIAL_MUSICIAN_AVAILABILITIES;
   });
 
   const [liveShows, setLiveShows] = useState<LiveShowConfirmed[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}liveShows`);
-    return saved ? JSON.parse(saved) : INITIAL_LIVE_SHOWS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.some((s: any) => s.venueName?.includes('Test'))) return parsed;
+      } catch {}
+    }
+    return INITIAL_LIVE_SHOWS;
+  });
+
+  const [reservations, setReservations] = useState<SpectatorReservation[]>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}reservations`);
+    return saved ? JSON.parse(saved) : INITIAL_SPECTATOR_RESERVATIONS;
+  });
+
+  const [storedUserName, setStoredUserName] = useState<string>(() => {
+    return localStorage.getItem('suenaba:logged_user_name') || '';
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
@@ -116,7 +193,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: 'notif-1',
         title: '¡Nueva postulación recibida!',
-        message: 'Julieta Díaz & Trío Nocturno se postuló para tu fecha del 24 de Octubre en Thelonious Club.',
+        message: 'Músico Test 1 se postuló para tu fecha del 20 de Noviembre en Bar Test 1.',
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
@@ -124,7 +201,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: 'notif-2',
         title: '¡Propuesta directa de fecha!',
-        message: 'Bebop Subterráneo te envió una oferta para tocar el 24 de Octubre.',
+        message: 'Bar Test 1 te envió una oferta para tocar el 21 de Noviembre.',
         timestamp: 'Hace 4 horas',
         read: false,
         type: 'offer',
@@ -146,12 +223,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeVenueId]);
 
   useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}activePublicUserId`, activePublicUserId);
+  }, [activePublicUserId]);
+
+  useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}venues`, JSON.stringify(venues));
   }, [venues]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}musicians`, JSON.stringify(musicians));
   }, [musicians]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}publicUsers`, JSON.stringify(publicUsers));
+  }, [publicUsers]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}openCalls`, JSON.stringify(openCalls));
@@ -166,40 +251,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [liveShows]);
 
   useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}reservations`, JSON.stringify(reservations));
+  }, [reservations]);
+
+  useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}notifications`, JSON.stringify(notifications));
   }, [notifications]);
 
-  // Synchronize with Supabase Cloud Database
+  // Synchronize with Supabase Cloud Database (keeping strictly test entities)
   useEffect(() => {
     async function syncWithSupabase() {
       if (!supabase) return;
       try {
         const { data: vData } = await supabase.from('venues').select('*');
         if (vData && vData.length > 0) {
-          setVenues(vData.map(mapVenue));
+          const testVenues = vData.map(mapVenue).filter((v) => v.name.includes('Test') || v.id === 'venue-1');
+          if (testVenues.length > 0) setVenues(testVenues);
         }
 
         const { data: mData } = await supabase.from('musicians').select('*');
         if (mData && mData.length > 0) {
-          setMusicians(mData.map(mapMusician));
+          const testMusicians = mData.map(mapMusician).filter((m) => m.stageName.includes('Test') || m.id === 'mus-1' || m.id === 'mus-2');
+          if (testMusicians.length > 0) setMusicians(testMusicians);
         }
 
         const { data: cData } = await supabase.from('open_calls').select('*');
         if (cData && cData.length > 0) {
-          setOpenCalls(cData.map(mapOpenCall));
+          const testCalls = cData.map(mapOpenCall).filter((c) => c.venueName.includes('Test') || c.venueId === 'venue-1');
+          if (testCalls.length > 0) setOpenCalls(testCalls);
         }
 
         const { data: aData } = await supabase.from('musician_availabilities').select('*');
         if (aData && aData.length > 0) {
-          setMusicianAvailabilities(aData.map(mapAvailability));
+          const testAvails = aData.map(mapAvailability).filter((a) => a.musicianName.includes('Test') || a.musicianId === 'mus-1' || a.musicianId === 'mus-2');
+          if (testAvails.length > 0) setMusicianAvailabilities(testAvails);
         }
 
         const { data: sData } = await supabase.from('live_shows').select('*');
         if (sData && sData.length > 0) {
-          setLiveShows(sData.map(mapLiveShow));
+          const testShows = sData.map(mapLiveShow).filter((s) => s.venueName.includes('Test') || s.venueId === 'venue-1');
+          if (testShows.length > 0) setLiveShows(testShows);
         }
       } catch {
-        // Fallback to local storage if offline or tables not yet migrated
+        // Fallback to initial seed if offline or tables not yet migrated
       }
     }
     syncWithSupabase();
@@ -207,6 +301,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const currentMusician = musicians.find((m) => m.id === activeMusicianId) || musicians[0];
   const currentVenue = venues.find((v) => v.id === activeVenueId) || venues[0];
+  const currentPublicUser = publicUsers.find((u) => u.id === activePublicUserId) || publicUsers[0];
+
+  const userDisplayName = storedUserName || (
+    role === 'espectador'
+      ? (currentPublicUser?.name || 'Usuario Público 1')
+      : role === 'musico'
+      ? (currentMusician?.stageName || 'Músico Test 1')
+      : (currentVenue?.name || 'Bar Test 1')
+  );
+
+  const setUserDisplayName = (name: string) => {
+    setStoredUserName(name);
+    try {
+      localStorage.setItem('suenaba:logged_user_name', name);
+    } catch {
+      // ignore
+    }
+  };
 
   const publishOpenCall = (callData: Omit<VenueOpenCall, 'id' | 'applications' | 'createdAt' | 'status'>) => {
     const newCall: VenueOpenCall = {
@@ -571,21 +683,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
+  const createReservation = (data: Omit<SpectatorReservation, 'id' | 'createdAt'>): SpectatorReservation => {
+    const newRes: SpectatorReservation = {
+      ...data,
+      id: `res-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    setReservations((prev) => [newRes, ...prev]);
+
+    setNotifications((prev) => [
+      {
+        id: `notif-${Date.now()}`,
+        title: '🎫 ¡Nueva reserva registrada!',
+        message: `Mesa reservada para ${data.partySize} personas en ${data.venueName}. Show: ${data.musicianName}.`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed',
+      },
+      ...prev,
+    ]);
+
+    return newRes;
+  };
+
+  const payReservation = (reservationId: string, mpPaymentId?: string) => {
+    const paymentId = mpPaymentId || `MP-${Math.floor(10000000 + Math.random() * 90000000)}`;
+    setReservations((prev) =>
+      prev.map((r) =>
+        r.id === reservationId
+          ? {
+              ...r,
+              paymentStatus: 'pagado_mp' as const,
+              mpPaymentId: paymentId,
+            }
+          : r
+      )
+    );
+
+    setNotifications((prev) => [
+      {
+        id: `notif-${Date.now()}`,
+        title: '💳 ¡Pago recibido por Mercado Pago!',
+        message: `Se confirmó el pago con Mercado Pago (ID: ${paymentId}). Mostrá tu código de reserva en el bar.`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed',
+      },
+      ...prev,
+    ]);
+  };
+
+  const cancelReservation = (reservationId: string) => {
+    setReservations((prev) => prev.filter((r) => r.id !== reservationId));
+  };
+
   const resetAllData = () => {
     localStorage.clear();
-    setRole('musico');
+    setRole('espectador');
     setActiveMusicianId('mus-1');
     setActiveVenueId('venue-1');
+    setActivePublicUserId('user-pub-1');
     setVenues(INITIAL_VENUES);
     setMusicians(INITIAL_MUSICIANS);
+    setPublicUsers(INITIAL_PUBLIC_USERS);
     setOpenCalls(INITIAL_OPEN_CALLS);
     setMusicianAvailabilities(INITIAL_MUSICIAN_AVAILABILITIES);
     setLiveShows(INITIAL_LIVE_SHOWS);
+    setReservations(INITIAL_SPECTATOR_RESERVATIONS);
+    setStoredUserName('');
     setNotifications([
       {
         id: 'notif-1',
         title: '¡Nueva postulación recibida!',
-        message: 'Julieta Díaz & Trío Nocturno se postuló para tu fecha del 24 de Octubre en Thelonious Club.',
+        message: 'Músico Test 1 se postuló para tu fecha del 20 de Noviembre en Bar Test 1.',
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
@@ -602,14 +772,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveMusicianId,
         activeVenueId,
         setActiveVenueId,
+        activePublicUserId,
+        setActivePublicUserId,
         venues,
         musicians,
+        publicUsers,
         openCalls,
         musicianAvailabilities,
         liveShows,
         notifications,
+        reservations,
         currentMusician,
         currentVenue,
+        currentPublicUser,
+        userDisplayName,
+        setUserDisplayName,
         publishOpenCall,
         applyToOpenCall,
         acceptApplication,
@@ -621,6 +798,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submitReview,
         markNotificationsAsRead,
         resetAllData,
+        createReservation,
+        payReservation,
+        cancelReservation,
       }}
     >
       {children}

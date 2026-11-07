@@ -39,7 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShare,
   onOpenFeedback,
 }) => {
-  const { role, setRole, currentMusician, currentVenue, notifications } = useApp();
+  const { role, setRole, currentMusician, currentVenue, notifications, userDisplayName } = useApp();
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -63,8 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
                 VIVO
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium leading-none">
-              Música & Bares de Bs. As.
+            <p className="text-[10px] text-slate-400 font-medium leading-none truncate max-w-[130px] sm:max-w-none">
+              Hola, <span className="text-amber-400 font-semibold">{userDisplayName}</span>
             </p>
           </div>
         </div>

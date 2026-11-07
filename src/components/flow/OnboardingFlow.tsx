@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
+import { useApp } from '../../context/AppContext.tsx';
 import { TOUR, TourStep } from '../../content/tour.ts';
 import { UserRole } from '../../types/index.ts';
 
@@ -43,6 +44,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   onOpenFeedback,
 }) => {
   const { signIn, signUp, state } = useSession();
+  let setUserDisplayName: ((name: string) => void) | undefined;
+  try {
+    const app = useApp();
+    setUserDisplayName = app.setUserDisplayName;
+  } catch {
+    // Safe fallback if mounted without AppProvider in isolated unit tests
+  }
 
   // Role in terms of UserRole: 'bar' | 'musico' | 'espectador'
   const [selectedRole, setSelectedRole] = useState<UserRole>(initialRole || 'musico');
@@ -95,13 +103,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         setAuthError(err);
         setAuthLoading(false);
       } else {
-        // Success: move to Step 3 (Guided Tour)
+        // Success: record user name and move to Step 3 (Guided Tour)
+        const nameToSave = displayName.trim() || email.split('@')[0];
+        if (setUserDisplayName) setUserDisplayName(nameToSave);
+        try {
+          localStorage.setItem('suenaba:logged_user_name', nameToSave);
+        } catch {}
+
         setAuthLoading(false);
         setTourIndex(0);
         setStep('tour');
       }
     } catch {
       // In case of network failure or demo environment, advance gracefully
+      const nameToSave = displayName.trim() || email.split('@')[0] || (selectedRole === 'bar' ? 'Bar Test 1' : selectedRole === 'musico' ? 'Músico Test 1' : 'Usuario Público 1');
+      if (setUserDisplayName) setUserDisplayName(nameToSave);
+      try {
+        localStorage.setItem('suenaba:logged_user_name', nameToSave);
+      } catch {}
+
       setAuthLoading(false);
       setTourIndex(0);
       setStep('tour');
@@ -110,6 +130,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Demo / Guest fast access
   const handleGuestOrDemoAccess = () => {
+    const demoName = selectedRole === 'bar' ? 'Bar Test 1' : selectedRole === 'musico' ? 'Músico Test 1' : 'Usuario Público 1';
+    if (setUserDisplayName) setUserDisplayName(demoName);
+    try {
+      localStorage.setItem('suenaba:logged_user_name', demoName);
+    } catch {}
+
     setTourIndex(0);
     setStep('tour');
   };
@@ -399,7 +425,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                     <input
                       type="text"
                       required={authMode === 'signup'}
-                      placeholder={selectedRole === 'bar' ? 'Ej: Café Berlín' : selectedRole === 'musico' ? 'Ej: Julieta Díaz & Trío' : 'Ej: Martín Gómez'}
+                      placeholder={selectedRole === 'bar' ? 'Ej: Bar Test 1' : selectedRole === 'musico' ? 'Ej: Músico Test 1' : 'Ej: Usuario Público 1'}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-slate-100 placeholder-slate-600 focus:border-amber-500 outline-none transition-colors"

@@ -181,3 +181,35 @@ export interface LiveShowConfirmed {
   venueReviewed: boolean;
   musicianReviewed: boolean;
 }
+
+export interface SpectatorReservation {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  showId: string;
+  showTitle: string;
+  musicianName: string;
+  venueName: string;
+  venueAddress: string;
+  venueNeighborhood: NeighborhoodBA;
+  showDate: string;
+  showTime: string;
+  partySize: number;
+  totalARS: number;
+  ticketType: 'entrada_libre' | 'consumicion_minima' | 'ticket_fijo';
+  paymentStatus: 'pagado_mp' | 'pendiente_mp';
+  mpPaymentId?: string;
+  reservationCode: string;
+  createdAt: string;
+}
+
+export interface PublicUserProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string;
+  favoriteGenres: MusicGenre[];
+  preferredNeighborhoods: NeighborhoodBA[];
+  createdAt: string;
+}
