@@ -18,7 +18,7 @@ describe('ShareModal Component', () => {
         <ShareModal
           isOpen={true}
           onClose={() => { closed = true; }}
-          appUrl="https://ariel25181.github.io/SuenaBA/"
+          appUrl="https://ariel25181.github.io/DeGira/"
         />
       );
     });
@@ -28,7 +28,7 @@ describe('ShareModal Component', () => {
     screen.getByText('Enlace directo a la app:');
 
     // Verify input contains app URL
-    const input = screen.getByDisplayValue('https://ariel25181.github.io/SuenaBA/');
+    const input = screen.getByDisplayValue('https://ariel25181.github.io/DeGira/');
     assert.ok(input);
 
     // Verify Social links

@@ -174,7 +174,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 truncate mt-0.5">
-                  {currentPublicUser?.email || 'publico1@suenaba.com.ar'}
+                  {currentPublicUser?.email || 'publico1@degira.com.ar'}
                 </p>
                 <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500">
                   <span className="flex items-center gap-1 text-emerald-400 font-semibold">

@@ -1,15 +1,15 @@
 /**
- * SuenaBA - Auth Redirect Helper
+ * SuenaBA / DeGira - Auth Redirect Helper
  *
  * Evita el problema clásico donde los correos de confirmación de cuenta
  * o restablecimiento de contraseña de Supabase Auth son enviados con "http://localhost:3000".
  *
  * Si el usuario se registra o solicita confirmación desde localhost, loopback,
  * o entorno de desarrollo local, SIEMPRE se redirige a la URL pública de producción
- * en GitHub Pages: https://ariel25181.github.io/SuenaBA/
+ * en GitHub Pages: https://ariel25181.github.io/DeGira/
  */
 
-export const PROD_AUTH_REDIRECT_URL = 'https://ariel25181.github.io/SuenaBA/';
+export const PROD_AUTH_REDIRECT_URL = 'https://ariel25181.github.io/DeGira/';
 
 export interface LocationLike {
   origin?: string;

@@ -156,7 +156,7 @@ export const INITIAL_PUBLIC_USERS: PublicUserProfile[] = [
   {
     id: 'user-pub-1',
     name: 'Usuario Público 1',
-    email: 'publico1@suenaba.com.ar',
+    email: 'publico1@degira.com.ar',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
     favoriteGenres: ['Jazz', 'Blues & Soul'],
     preferredNeighborhoods: ['Palermo Soho', 'Palermo Hollywood'],
@@ -165,7 +165,7 @@ export const INITIAL_PUBLIC_USERS: PublicUserProfile[] = [
   {
     id: 'user-pub-2',
     name: 'Usuario Público 2',
-    email: 'publico2@suenaba.com.ar',
+    email: 'publico2@degira.com.ar',
     avatarUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80',
     favoriteGenres: ['Rock', 'Indie'],
     preferredNeighborhoods: ['San Telmo', 'Colegiales'],
@@ -358,7 +358,7 @@ export const INITIAL_SPECTATOR_RESERVATIONS: SpectatorReservation[] = [
     id: 'res-test-1',
     userId: 'user-pub-1',
     userName: 'Usuario Público 1',
-    userEmail: 'publico1@suenaba.com.ar',
+    userEmail: 'publico1@degira.com.ar',
     showId: 'show-1',
     showTitle: 'Músico Test 1 en Vivo',
     musicianName: 'Músico Test 1',

@@ -1,8 +1,8 @@
-# 🎷 SuenaBA - Red de Música en Vivo & Bares de Buenos Aires
+# 🚐 DeGira - Red de Música en Vivo & Bares de Buenos Aires
 
-Una aplicación web mobile-first optimizada para celulares Android y iPhone, inspirada en la dinámica de **Airbnb** para conectar a la escena musical y gastronómica de la Ciudad Autónoma de Buenos Aires (CABA).
+Una aplicación web mobile-first optimizada para celulares Android y iPhone, con la icónica camioneta VW de los 60 e inspirada en la dinámica colaborativa para conectar a la escena musical y gastronómica de la Ciudad Autónoma de Buenos Aires (CABA).
 
-![SuenaBA Banner](https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&auto=format&fit=crop&q=80)
+![DeGira Banner](https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1200&auto=format&fit=crop&q=80)
 
 ---
 
@@ -20,11 +20,11 @@ Una aplicación web mobile-first optimizada para celulares Android y iPhone, ins
 ### 3. Cartelera y Catálogo de Música en Vivo de Buenos Aires
 - Cartelera cultural pública con los shows confirmados en locales de CABA.
 - Filtros interactivos por barrio (Palermo Soho, San Telmo, Colegiales, Chacarita, Recoleta, etc.) y género musical (Jazz, Tango, Indie, Rock, Acústico, Bossa Nova, Folklore).
-- Información de accesos (Entrada libre, consumición mínima, ticket) y simulación de reserva de mesa.
+- Información de accesos (Entrada libre, consumición mínima, ticket) y simulación de reserva de mesa con integración de Mercado Pago.
 
 ---
 
-## ⭐ Sistema de Reputación Bilateral (Estilo Airbnb)
+## ⭐ Sistema de Reputación Bilateral
 
 Solo los bares y músicos que hayan acordado y completado una fecha pueden calificarse mutuamente:
 - **Los músicos califican al bar**: Puntualidad en el pago del caché, calidad de sonido y acústica, hospitalidad/cena y trato a los artistas.
@@ -47,8 +47,8 @@ Solo los bares y músicos que hayan acordado y completado una fecha pueden calif
 
 1. Clonar el repositorio:
    ```bash
-   git clone https://github.com/TU_USUARIO/suenaba.git
-   cd suenaba
+   git clone https://github.com/ariel25181/DeGira.git
+   cd DeGira
    ```
 
 2. Instalar dependencias:
@@ -96,8 +96,8 @@ npm run push:force
 **¿Qué hace automáticamente?**
 1. **Verificación previa:** Valida los tipos de TypeScript (`npm run lint`) y comprueba la compilación de producción (`npm run build`) para asegurar que no se suban errores al repositorio.
 2. **Commit inteligente:** Si no se especifica un mensaje, crea uno con la fecha y hora actual; si no hay archivos modificados, avisa sin romper el proceso.
-3. **Push a `main`:** Envía los commits a `https://github.com/ariel25181/SuenaBA.git`. Si hay cambios remotos, sincroniza con `fetch/rebase` automáticamente.
-4. **Deploy a GitHub Pages:** Con `npm run push:pages`, también actualiza la rama `gh-pages` para reflejar los cambios en `https://ariel25181.github.io/SuenaBA/`.
+3. **Push a `main`:** Envía los commits a `https://github.com/ariel25181/DeGira.git`. Si hay cambios remotos, sincroniza con `fetch/rebase` automáticamente.
+4. **Deploy a GitHub Pages:** Con `npm run push:pages`, también actualiza la rama `gh-pages` para reflejar los cambios en `https://ariel25181.github.io/DeGira/`.
 
 ---
 
@@ -105,15 +105,15 @@ npm run push:force
 
 Para vincular este proyecto a tu cuenta personal de GitHub:
 
-1. Creá un repositorio vacío en tu cuenta de GitHub (por ejemplo llamado `suenaba`):
+1. Creá un repositorio vacío en tu cuenta de GitHub (por ejemplo llamado `DeGira`):
    - Entrá a [https://github.com/new](https://github.com/new)
-   - Nombre del repo: `suenaba`
+   - Nombre del repo: `DeGira`
    - No tildes "Add a README" (ya tenemos este listo)
    - Hacé clic en **Create repository**
 
 2. En tu terminal o consola, ejecutá:
    ```bash
-   git remote add origin https://github.com/TU_USUARIO/suenaba.git
+   git remote add origin https://github.com/ariel25181/DeGira.git
    git branch -M main
    git push -u origin main
    ```

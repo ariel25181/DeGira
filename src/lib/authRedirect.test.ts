@@ -13,7 +13,7 @@ test('resolveAuthRedirectUrl returns production URL when location is localhost w
   const local5173 = resolveAuthRedirectUrl({
     origin: 'http://localhost:5173',
     hostname: 'localhost',
-    pathname: '/SuenaBA',
+    pathname: '/DeGira',
   });
   assert.strictEqual(local5173, PROD_AUTH_REDIRECT_URL);
 });
@@ -47,16 +47,16 @@ test('resolveAuthRedirectUrl preserves canonical production origin when hosted p
   const ghPages = resolveAuthRedirectUrl({
     origin: 'https://ariel25181.github.io',
     hostname: 'ariel25181.github.io',
-    pathname: '/SuenaBA/',
+    pathname: '/DeGira/',
   });
-  assert.strictEqual(ghPages, 'https://ariel25181.github.io/SuenaBA/');
+  assert.strictEqual(ghPages, 'https://ariel25181.github.io/DeGira/');
 
   const customDomain = resolveAuthRedirectUrl({
-    origin: 'https://suenaba.com.ar',
-    hostname: 'suenaba.com.ar',
+    origin: 'https://degira.com.ar',
+    hostname: 'degira.com.ar',
     pathname: '/',
   });
-  assert.strictEqual(customDomain, 'https://suenaba.com.ar/');
+  assert.strictEqual(customDomain, 'https://degira.com.ar/');
 });
 
 test('resolveAuthRedirectUrl falls back to production URL in SSR environments without location', () => {

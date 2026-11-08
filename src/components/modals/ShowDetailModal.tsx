@@ -83,12 +83,12 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
 
     setTimeout(() => {
       const mpId = mode === 'mp' ? `MP-${Math.floor(10000000 + Math.random() * 90000000)}` : undefined;
-      const resCode = `SBA-MP-${Math.floor(1000 + Math.random() * 9000)}`;
+      const resCode = `DG-MP-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const newRes = createReservation({
         userId: currentPublicUser?.id || 'user-pub-1',
         userName: userDisplayName || currentPublicUser?.name || 'Usuario Público 1',
-        userEmail: currentPublicUser?.email || 'publico1@suenaba.com.ar',
+        userEmail: currentPublicUser?.email || 'publico1@degira.com.ar',
         showId: show.id,
         showTitle: `${show.musicianName} en Vivo`,
         musicianName: show.musicianName,

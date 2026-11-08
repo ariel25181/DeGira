@@ -21,7 +21,7 @@ interface ShareModalProps {
 export const ShareModal: React.FC<ShareModalProps> = ({
   isOpen,
   onClose,
-  appUrl = 'https://ariel25181.github.io/SuenaBA/',
+  appUrl = 'https://ariel25181.github.io/DeGira/',
 }) => {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);

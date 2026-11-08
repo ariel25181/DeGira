@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# SuenaBA - Utilidad para hacer commit y push de fixes a GitHub
+# DeGira - Utilidad para hacer commit y push de fixes a GitHub
 # ==============================================================================
 # Uso:
 #   npm run push
@@ -9,9 +9,9 @@
 # ==============================================================================
 set -euo pipefail
 
-REPO_DEFAULT="https://github.com/ariel25181/SuenaBA.git"
-REPO_WEB="https://github.com/ariel25181/SuenaBA"
-PAGES_WEB="https://ariel25181.github.io/SuenaBA/"
+REPO_DEFAULT="https://github.com/ariel25181/DeGira.git"
+REPO_WEB="https://github.com/ariel25181/DeGira"
+PAGES_WEB="https://ariel25181.github.io/DeGira/"
 BRANCH="main"
 
 MSG=""
@@ -62,7 +62,7 @@ if [ -z "$MSG" ]; then
 fi
 
 echo "============================================================"
-echo "🚀 SuenaBA: Enviando fixes a GitHub ($BRANCH)"
+echo "🚀 DeGira: Enviando fixes a GitHub ($BRANCH)"
 echo "📝 Mensaje: $MSG"
 echo "============================================================"
 
@@ -86,7 +86,7 @@ CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
 TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 if [ -n "$TOKEN" ]; then
-  TARGET_REMOTE="https://${TOKEN}@github.com/ariel25181/SuenaBA.git"
+  TARGET_REMOTE="https://${TOKEN}@github.com/ariel25181/DeGira.git"
 else
   TARGET_REMOTE="$REPO_DEFAULT"
 fi

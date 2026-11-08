@@ -102,7 +102,7 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
     const typePrefix = type === 'bug' ? '[Bug] ' : type === 'feature' ? '[Mejora] ' : '[Feedback] ';
     const issueTitle = encodeURIComponent(`${typePrefix}${title || 'Nuevo reporte desde DeGira'}`);
     const issueBody = encodeURIComponent(generateMarkdownReport());
-    const githubUrl = `https://github.com/ariel25181/SuenaBA/issues/new?title=${issueTitle}&body=${issueBody}`;
+    const githubUrl = `https://github.com/ariel25181/DeGira/issues/new?title=${issueTitle}&body=${issueBody}`;
 
     if (typeof window !== 'undefined') {
       window.open(githubUrl, '_blank', 'noopener,noreferrer');
