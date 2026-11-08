@@ -24,7 +24,7 @@ describe('ShareModal Component', () => {
     });
 
     // Verify Title
-    screen.getByText('Compartir SuenaBA');
+    screen.getByText('Compartir DeGira');
     screen.getByText('Enlace directo a la app:');
 
     // Verify input contains app URL
@@ -41,7 +41,7 @@ describe('ShareModal Component', () => {
     await act(async () => {
       fireEvent.click(qrToggle);
     });
-    screen.getByAltText('Código QR de SuenaBA');
+    screen.getByAltText('Código QR de DeGira');
 
     // Click Close
     const closeBtn = screen.getByLabelText('Cerrar modal');

@@ -105,7 +105,7 @@ export const BookingSheet: React.FC<{ bookingId: string; profile: Profile; onClo
       <p className="text-sm text-slate-300">Cachet acordado: <strong>{ars(b.cachetArs)}</strong> · Política {POLICY_LABEL[b.cancellationPolicy]}</p>
       <p className="text-[11px] text-slate-500">{POLICY_RULES[b.cancellationPolicy]}</p>
       {payment && <Card className="text-xs text-slate-300 space-y-0.5">
-        <p><strong>Pago:</strong> {payment.status === 'held' ? 'retenido por SuenaBA' : payment.status === 'released' ? 'liberado al músico' : payment.status === 'refunded' ? 'reembolsado al bar' : 'reembolsado en parte'} ({payment.provider})</p>
+        <p><strong>Pago:</strong> {payment.status === 'held' ? 'retenido por DeGira' : payment.status === 'released' ? 'liberado al músico' : payment.status === 'refunded' ? 'reembolsado al bar' : 'reembolsado en parte'} ({payment.provider})</p>
         <p>{isBar ? `Total cobrado: ${ars(payment.chargedArs)}${payment.venueFeeArs ? ` (incluye comisión ${ars(payment.venueFeeArs)})` : ' (sin comisión)'}` : `Cachet a cobrar: ${ars(payment.cachetArs)}`}</p>
         {payment.status !== 'held' && <p>{isBar ? `Reembolsado: ${ars(payment.refundedArs)}` : `Te pagaron: ${ars(payment.payoutArs)}`}</p>}
       </Card>}

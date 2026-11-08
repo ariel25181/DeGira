@@ -100,7 +100,7 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
 
   const handleOpenGitHubIssue = () => {
     const typePrefix = type === 'bug' ? '[Bug] ' : type === 'feature' ? '[Mejora] ' : '[Feedback] ';
-    const issueTitle = encodeURIComponent(`${typePrefix}${title || 'Nuevo reporte desde SuenaBA'}`);
+    const issueTitle = encodeURIComponent(`${typePrefix}${title || 'Nuevo reporte desde DeGira'}`);
     const issueBody = encodeURIComponent(generateMarkdownReport());
     const githubUrl = `https://github.com/ariel25181/SuenaBA/issues/new?title=${issueTitle}&body=${issueBody}`;
 
@@ -309,7 +309,7 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
                       ? 'Describí qué estabas haciendo, qué botón presionaste y qué error apareció...'
                       : type === 'feature'
                       ? 'Contanos cómo te imaginas esta nueva función y por qué sería útil para músicos o bares...'
-                      : 'Dejanos tus comentarios sobre SuenaBA...'
+                      : 'Dejanos tus comentarios sobre DeGira...'
                   }
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}

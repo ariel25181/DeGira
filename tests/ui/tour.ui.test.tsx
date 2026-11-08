@@ -52,7 +52,7 @@ afterEach(async () => { cleanup(); const bad = await checkInvariants(pool, { sin
 describe('Bienvenida: tipo de uso y tour', () => {
   it('primera visita: pregunta el tipo de uso, hace el tour completo y no lo repite', async () => {
     mount();
-    await screen.findByText('¿Cómo vas a usar SuenaBA?', {}, T);
+    await screen.findByText('¿Cómo vas a usar DeGira?', {}, T);
     screen.getByRole('button', { name: /Soy anfitrión/ }); screen.getByRole('button', { name: /Soy músico o banda/ }); screen.getByRole('button', { name: /Soy público/ });
     assert.ok(!tourDialog());
     fireEvent.click(screen.getByRole('button', { name: /Soy músico o banda/ }));
@@ -64,11 +64,11 @@ describe('Bienvenida: tipo de uso y tour', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Atrás' }));
     within(dlg).getByText('Bienvenido, músico');
     await walkTour('musico', 'Empezar');
-    await screen.findByText('Ingresá a SuenaBA', {}, T);                                    // ya puede entrar / crear su perfil
+    await screen.findByText('Ingresá a DeGira', {}, T);                                    // ya puede entrar / crear su perfil
     assert.deepEqual(getPrefs(), { audience: 'musico', tourVersion: TOUR_VERSION, whatsNewSeen: latestNovedadId() });
     cleanup(); mount();
-    await screen.findByText('Ingresá a SuenaBA', {}, T);
-    assert.ok(!tourDialog()); assert.ok(!screen.queryByText('¿Cómo vas a usar SuenaBA?'));
+    await screen.findByText('Ingresá a DeGira', {}, T);
+    assert.ok(!tourDialog()); assert.ok(!screen.queryByText('¿Cómo vas a usar DeGira?'));
   });
 
   it('el tour de cada tipo de uso es distinto y tiene su último paso', async () => {
@@ -96,7 +96,7 @@ describe('Bienvenida: tipo de uso y tour', () => {
 
   it('el botón "Tour" lo reabre cuando quieras', async () => {
     setPrefs({ audience: 'musico', tourVersion: TOUR_VERSION, whatsNewSeen: latestNovedadId() });
-    mount(); await screen.findByText('Ingresá a SuenaBA', {}, T);
+    mount(); await screen.findByText('Ingresá a DeGira', {}, T);
     assert.ok(!tourDialog());
     click('Ver el tour de bienvenida');
     await screen.findByRole('dialog', { name: 'Tour de bienvenida' }, T);
@@ -114,7 +114,7 @@ describe('Público: cartelera sin cuenta', () => {
     await screen.findByText('Cartelera de shows en vivo', {}, T);
     await screen.findByText('Músico 1', {}, T); screen.getByText('Músico 2');
     await screen.findByText('2 shows confirmados');
-    assert.ok(!screen.queryByText('Ingresá a SuenaBA'));                                       // sin login
+    assert.ok(!screen.queryByText('Ingresá a DeGira'));                                       // sin login
     fireEvent.click(screen.getByRole('button', { name: 'San Telmo' }));
     await screen.findByText('1 show confirmado', {}, T);
     assert.ok(!screen.queryByText('Músico 1')); screen.getByText('Músico 2');
@@ -122,7 +122,7 @@ describe('Público: cartelera sin cuenta', () => {
     await screen.findByText('1 show confirmado', {}, T);                                       // espera el resultado filtrado, no un texto que ya estaba
     await screen.findByText('Músico 1', {}, T); await waitFor(() => assert.ok(!screen.queryByText('Músico 2'), 'Músico 2 no debería verse con el filtro Jazz'), T);
     fireEvent.click(screen.getByRole('button', { name: 'Cambiar mi tipo de uso' }));
-    await screen.findByText('¿Cómo vas a usar SuenaBA?', {}, T);
+    await screen.findByText('¿Cómo vas a usar DeGira?', {}, T);
     assert.equal(getPrefs().audience, null);
   });
 

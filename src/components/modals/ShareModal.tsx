@@ -28,9 +28,9 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   if (!isOpen) return null;
 
-  const shareTitle = 'SuenaBA - Música en Vivo & Bares de Buenos Aires';
+  const shareTitle = 'DeGira - Música en Vivo & Bares de Buenos Aires';
   const shareText =
-    '¡Te comparto SuenaBA! La app para conectar bares, restaurantes y músicos en vivo en Buenos Aires, reservar fechas y ver la cartelera.';
+    '¡Te comparto DeGira! La app para conectar bares, restaurantes y músicos en vivo en Buenos Aires, reservar fechas y ver la cartelera.';
 
   const handleCopy = async () => {
     try {
@@ -90,12 +90,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         {/* Header */}
         <div className="p-5 border-b border-slate-800/80 bg-slate-950/70 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <Share2 className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-2xl overflow-hidden border border-amber-500/40 shrink-0">
+              <img src="./icons/degira-van.jpg" alt="DeGira Camioneta VW" className="w-full h-full object-cover" />
             </div>
             <div>
               <h2 id="share-title" className="text-base font-black text-slate-100 flex items-center gap-1.5">
-                Compartir SuenaBA
+                Compartir DeGira
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
                   En vivo
                 </span>
@@ -220,12 +220,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               <div className="mt-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center text-center space-y-2 animate-in fade-in duration-200">
                 <img
                   src={qrCodeUrl}
-                  alt="Código QR de SuenaBA"
+                  alt="Código QR de DeGira"
                   className="w-40 h-40 rounded-xl border border-amber-500/30 p-1 bg-slate-900 shadow-md"
                   loading="lazy"
                 />
                 <p className="text-[11px] text-slate-400 max-w-xs">
-                  Escaneá con la cámara de cualquier teléfono para abrir e instalar SuenaBA.
+                  Escaneá con la cámara de cualquier teléfono para abrir e instalar DeGira.
                 </p>
               </div>
             )}

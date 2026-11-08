@@ -127,7 +127,7 @@ describe('Explorar y reservar (músico)', () => {
     click('Ver detalle de Bar 1');
     const sheet = await screen.findByRole('dialog', { name: 'Bar 1' }, T);
     within(sheet).getByText(/Política de cancelación: Moderada/);
-    await within(sheet).findByText(/Comisión SuenaBA \(10%\)/, {}, T);
+    await within(sheet).findByText(/Comisión DeGira \(10%\)/, {}, T);
     within(sheet).getByText(/Vas a recibir/);
     assert.match(sheet.textContent!, /\$108\.000/);
     fireEvent.change(within(sheet).getByLabelText(/Tu propuesta de cachet/), { target: { value: '150000' } });
@@ -182,7 +182,7 @@ describe('Flujo del bar: avisos, aceptar, pagar, cancelar', () => {
     await within(sheet).findByText('Aceptada · falta el pago', {}, T);
     fireEvent.click(await within(sheet).findByRole('button', { name: /Pagar y confirmar/ }, T));
     await within(sheet).findByText('Confirmada', {}, T);
-    assert.match(sheet.textContent!, /retenido por SuenaBA/);
+    assert.match(sheet.textContent!, /retenido por DeGira/);
     assert.match(sheet.textContent!, /Pago retenido: fecha confirmada/);
     const kinds = (await A.q(`select kind from notifications where user_id = $1 order by created_at`, [m1.userId])).map((r) => r.kind);
     assert.deepEqual(kinds, ['booking_accepted', 'booking_funded']);
@@ -338,6 +338,6 @@ describe('Panel del bar, avisos y favoritos', () => {
   it('cerrar sesión vuelve al login', async () => {
     await asUserUI(em(m1)); tab('Cuenta');
     await clickAsync('Cerrar sesión');
-    await screen.findByText('Ingresá a SuenaBA', {}, T);
+    await screen.findByText('Ingresá a DeGira', {}, T);
   });
 });

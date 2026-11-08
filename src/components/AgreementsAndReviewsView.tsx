@@ -143,7 +143,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                 Sistema de Reputación Bilateral Cerrado
               </p>
               <p className="text-slate-300">
-                Solo quienes hayan acordado y finalizado una fecha en SuenaBA pueden calificarse mutuamente (puntualidad en el pago, sonido, camarín, trato y convocatoria).
+                Solo quienes hayan acordado y finalizado una fecha en DeGira pueden calificarse mutuamente (puntualidad en el pago, sonido, camarín, trato y convocatoria).
               </p>
             </div>
           </div>

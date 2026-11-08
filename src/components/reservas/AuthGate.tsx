@@ -22,7 +22,7 @@ const LoginForm: React.FC = () => {
   };
   return (
     <Card className="space-y-3 mt-4">
-      <h2 className="text-lg font-bold text-slate-100">{mode === 'login' ? 'Ingresá a SuenaBA' : 'Creá tu cuenta'}</h2>
+      <h2 className="text-lg font-bold text-slate-100">{mode === 'login' ? 'Ingresá a DeGira' : 'Creá tu cuenta'}</h2>
       <p className="text-xs text-slate-400">Reservá fechas, cobrá tus shows y dejá reseñas verificadas.</p>
       <Field label="Email"><input className={inputCls} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
       <Field label="Contraseña"><input className={inputCls} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} /></Field>

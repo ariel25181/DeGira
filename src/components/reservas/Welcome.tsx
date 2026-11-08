@@ -6,8 +6,10 @@ import { Btn, Card, Pill, Sheet } from './ui.tsx';
 export const AudiencePicker: React.FC<{ onPick: (a: Audience) => void }> = ({ onPick }) => (
   <div className="space-y-3 mt-2">
     <div className="text-center space-y-1">
-      <p className="text-3xl" aria-hidden>🎶</p>
-      <h2 className="text-lg font-bold text-slate-100">¿Cómo vas a usar SuenaBA?</h2>
+      <div className="w-12 h-12 mx-auto rounded-xl overflow-hidden border border-amber-500/40 shrink-0">
+        <img src="./icons/degira-van.jpg" alt="DeGira Camioneta VW" className="w-full h-full object-cover" />
+      </div>
+      <h2 className="text-lg font-bold text-slate-100">¿Cómo vas a usar DeGira?</h2>
       <p className="text-xs text-slate-400">Elegí una opción y te mostramos un recorrido corto hecho a tu medida. Podés cambiarlo después.</p>
     </div>
     <div className="space-y-2" role="group" aria-label="Tipo de uso">
@@ -48,7 +50,7 @@ export const NovedadesSheet: React.FC<{ audience: Audience | null; seen: number;
   const list = novedadesFor(audience);
   return (
     <Sheet title="Novedades" onClose={onClose}>
-      <p className="text-xs text-slate-400">Cada función nueva de SuenaBA, de la más reciente a la más antigua.</p>
+      <p className="text-xs text-slate-400">Cada función nueva de DeGira, de la más reciente a la más antigua.</p>
       {list.length === 0 && <p className="text-sm text-slate-500">Todavía no hay novedades.</p>}
       <ol className="space-y-2">
         {list.map((n) => (

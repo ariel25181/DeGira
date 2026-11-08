@@ -1,4 +1,4 @@
-/* Notificaciones push de SuenaBA. Se carga dentro del service worker de la PWA (workbox.importScripts). */
+/* Notificaciones push de DeGira. Se carga dentro del service worker de la PWA (workbox.importScripts). */
 function safeUrl(u) {
   try {
     var x = new URL(u, self.location.origin);
@@ -9,7 +9,7 @@ function safeUrl(u) {
 self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }
-  var title = String(data.title || 'SuenaBA').slice(0, 80);
+  var title = String(data.title || 'DeGira').slice(0, 80);
   event.waitUntil(self.registration.showNotification(title, {
     body: String(data.body || '').slice(0, 200),
     tag: data.tag || undefined,

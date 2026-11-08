@@ -121,7 +121,7 @@ export const ROLE_ACTIVITIES: Record<UserRole, RoleActivity[]> = {
       id: 'acuerdos',
       title: 'Cobros & Acuerdos de Cachet',
       shortLabel: 'Cobros',
-      description: 'Cachet en custodia de SuenaBA, pagos liberados post-show y reseñas mutuas de reputación.',
+      description: 'Cachet en custodia de DeGira, pagos liberados post-show y reseñas mutuas de reputación.',
       emoji: '💰',
       icon: Handshake,
       badge: 'Cobro protegido',
@@ -375,7 +375,7 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Opciones disponibles para tu rol en SuenaBA
+                Opciones disponibles para tu rol en DeGira
               </p>
             </div>
           </div>
@@ -489,7 +489,7 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
                   onOpenShare();
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold transition-colors"
-                title="Compartir SuenaBA"
+                title="Compartir DeGira"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Compartir</span>

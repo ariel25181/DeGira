@@ -33,8 +33,8 @@ test('push: tolera datos vacíos o inválidos y recorta textos largos', async ()
   await sw.fire('push', { data: null });
   await sw.fire('push', { data: { json: () => { throw new Error('no es json'); }, text: () => 'texto plano' } });
   await sw.fire('push', pushEv({ title: 'T'.repeat(300), body: 'B'.repeat(900) }));
-  assert.deepEqual([sw.shown[0].title, sw.shown[0].body], ['SuenaBA', '']);
-  assert.deepEqual([sw.shown[1].title, sw.shown[1].body], ['SuenaBA', 'texto plano']);
+  assert.deepEqual([sw.shown[0].title, sw.shown[0].body], ['DeGira', '']);
+  assert.deepEqual([sw.shown[1].title, sw.shown[1].body], ['DeGira', 'texto plano']);
   assert.ok(sw.shown[2].title.length <= 80 && sw.shown[2].body.length <= 200);
 });
 test('clic: enfoca la ventana abierta o abre una nueva; cierra la notificación', async () => {

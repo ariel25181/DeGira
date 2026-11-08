@@ -16,7 +16,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('SuenaBA error:', error, info.componentStack);
+    console.error('DeGira error:', error, info.componentStack);
   }
 
   handleReset = () => {

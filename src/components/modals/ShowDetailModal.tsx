@@ -60,7 +60,7 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
   const handleShare = () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(
-        `¡Vamos a ver a ${show.musicianName} en ${show.venueName} el ${formatDateBA(show.date)}! Entradas y reservas en SuenaBA.`
+        `¡Vamos a ver a ${show.musicianName} en ${show.venueName} el ${formatDateBA(show.date)}! Entradas y reservas en DeGira.`
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -379,7 +379,7 @@ export const ShowDetailModal: React.FC<ShowDetailModalProps> = ({
                     <span>mercado pago</span>
                   </div>
                   <p className="text-[11px] text-sky-100 font-medium">
-                    Checkout Transparente Protegido • SuenaBA
+                    Checkout Transparente Protegido • DeGira
                   </p>
                 </div>
                 <div className="text-right">

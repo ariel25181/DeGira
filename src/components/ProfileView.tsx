@@ -141,12 +141,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         {/* Welcome Greeting Banner */}
         <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-slate-900 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black text-lg shrink-0">
-              👋
+            <div className="w-11 h-11 rounded-xl overflow-hidden border-2 border-amber-500/50 shadow-md shrink-0">
+              <img src="./icons/degira-van.jpg" alt="DeGira Camioneta VW" className="w-full h-full object-cover" />
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-extrabold text-slate-100">
-                ¡Bienvenido a SuenaBA, <span className="text-amber-400">{userDisplayName}</span>!
+                ¡Bienvenido a DeGira, <span className="text-amber-400">{userDisplayName}</span>!
               </h2>
               <p className="text-xs text-slate-400">
                 Panel de Público General • Reservas de shows, pagos con Mercado Pago y preferencias
@@ -391,7 +391,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         <div className="w-36 h-36 mx-auto bg-white p-2 rounded-xl shadow-md">
                           <img
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(
-                              `SuenaBA:Reserva:${res.reservationCode}:Titular:${res.userName}:Show:${res.musicianName}:Bar:${res.venueName}`
+                              `DeGira:Reserva:${res.reservationCode}:Titular:${res.userName}:Show:${res.musicianName}:Bar:${res.venueName}`
                             )}`}
                             alt="Código QR de la reserva"
                             className="w-full h-full object-contain"

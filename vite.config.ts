@@ -14,10 +14,10 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
-          id: 'suenaba-pwa-v1',
-          name: 'SuenaBA - Red de Música en Vivo & Bares de Buenos Aires',
-          short_name: 'SuenaBA',
-          description: 'App para conectar bares, restaurantes y músicos en Buenos Aires: convocatorias, fechas libres, cartelera y calificaciones estilo Airbnb.',
+          id: 'degira-pwa-v1',
+          name: 'DeGira - Red de Música en Vivo & Bares de Buenos Aires',
+          short_name: 'DeGira',
+          description: 'App para conectar bares, restaurantes y bandas en Buenos Aires: convocatorias, fechas libres, cartelera y reservas.',
           theme_color: '#0f172a',
           background_color: '#020617',
           display: 'standalone',
@@ -25,6 +25,12 @@ export default defineConfig(() => {
           start_url: './',
           scope: './',
           icons: [
+            {
+              src: 'icons/degira-van.jpg',
+              sizes: '1024x1024',
+              type: 'image/jpeg',
+              purpose: 'any',
+            },
             {
               src: 'pwa-192x192.png',
               sizes: '192x192',

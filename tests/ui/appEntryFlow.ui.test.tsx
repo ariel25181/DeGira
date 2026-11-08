@@ -34,7 +34,7 @@ describe('OnboardingFlow Step-by-Step Flow', () => {
     });
 
     // Verify Title
-    screen.getByText('¿Cómo vas a ingresar a SuenaBA?');
+    screen.getByText('¿Cómo vas a ingresar a DeGira?');
 
     // Verify 3 options
     screen.getByText('Soy Anfitrión de Bar');
@@ -57,7 +57,7 @@ describe('OnboardingFlow Step-by-Step Flow', () => {
     });
 
     // Should now be on Auth screen
-    screen.getByText('Iniciar Sesión en SuenaBA');
+    screen.getByText('Iniciar Sesión en DeGira');
     screen.getByText('Anfitrión de Bar');
     screen.getByText('Ya tengo cuenta');
     screen.getByText('Crear nueva cuenta');
@@ -66,14 +66,14 @@ describe('OnboardingFlow Step-by-Step Flow', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Crear nueva cuenta'));
     });
-    screen.getByText('Crear tu Cuenta en SuenaBA');
+    screen.getByText('Crear tu Cuenta en DeGira');
     screen.getByText('Nombre del Bar o Sala');
 
     // Test back button returns to Role Selection
     await act(async () => {
       fireEvent.click(screen.getByText('Cambiar perfil'));
     });
-    screen.getByText('¿Cómo vas a ingresar a SuenaBA?');
+    screen.getByText('¿Cómo vas a ingresar a DeGira?');
   });
 
   it('Paso 3: Completing auth advances to role-tailored Guided Tour', async () => {

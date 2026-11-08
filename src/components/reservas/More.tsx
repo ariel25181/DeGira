@@ -98,7 +98,7 @@ export const HostPanel: React.FC<{ profile: Profile }> = ({ profile }) => {
 };
 
 const PUSH_TEXT: Record<PushState, string> = {
-  unsupported: 'Este navegador no permite notificaciones. En el celular, instalá SuenaBA en la pantalla de inicio.',
+  unsupported: 'Este navegador no permite notificaciones. En el celular, instalá DeGira en la pantalla de inicio.',
   no_key: 'Las notificaciones en el dispositivo todavía no están habilitadas en esta instalación.',
   denied: 'Bloqueaste las notificaciones de este sitio. Activalas desde los ajustes del navegador.',
   off: 'Desactivadas en este dispositivo.',

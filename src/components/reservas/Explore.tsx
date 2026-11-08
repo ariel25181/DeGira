@@ -138,9 +138,9 @@ export const ListingSheet: React.FC<{ r: SearchResult; profile: Profile; onClose
           {!instant && <Field label="Tu propuesta de cachet (ARS)" hint="Podés proponer otro monto; el bar decide si lo acepta."><input className={inputCls} inputMode="numeric" value={cachet} onChange={(e) => setCachet(e.target.value.replace(/\D/g, ''))} /></Field>}
           <Card className="space-y-0.5 text-sm">
             <div className="flex justify-between"><span className="text-slate-400">Cachet</span><span>{ars(price.cachet)}</span></div>
-            {fees.musicianFeeBps > 0 ? <div className="flex justify-between"><span className="text-slate-400">Comisión SuenaBA ({fees.musicianFeeBps / 100}%)</span><span>−{ars(price.musicianFee)}</span></div> : <div className="text-[11px] text-emerald-300">Sin comisión para vos</div>}
+            {fees.musicianFeeBps > 0 ? <div className="flex justify-between"><span className="text-slate-400">Comisión DeGira ({fees.musicianFeeBps / 100}%)</span><span>−{ars(price.musicianFee)}</span></div> : <div className="text-[11px] text-emerald-300">Sin comisión para vos</div>}
             <div className="flex justify-between font-bold"><span>Vas a recibir</span><span>{ars(price.musicianReceives)}</span></div>
-            <p className="pt-1 text-[11px] text-slate-500">El pago queda retenido por SuenaBA y se libera cuando el show se realiza.</p>
+            <p className="pt-1 text-[11px] text-slate-500">El pago queda retenido por DeGira y se libera cuando el show se realiza.</p>
           </Card>
           <Field label="Mensaje para el bar (opcional)"><textarea className={inputCls} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
           {act.error && <Banner kind="error">{act.error}</Banner>}

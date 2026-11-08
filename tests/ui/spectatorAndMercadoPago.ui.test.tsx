@@ -60,7 +60,7 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
     });
 
     // Check Welcome greeting & spectator profile
-    screen.getByText(/¡Bienvenido a SuenaBA,/);
+    screen.getByText(/¡Bienvenido a DeGira,/);
     screen.getByText('Público General');
     screen.getByText(/Mis Reservas/);
     screen.getByText(/Preferencias/);

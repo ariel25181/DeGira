@@ -52,17 +52,22 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Logo */}
         <div
           onClick={() => onSelectTab('cartelera')}
-          className="flex items-center space-x-2 cursor-pointer group"
+          className="flex items-center space-x-2.5 cursor-pointer group"
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-orange-500 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/25 group-hover:scale-105 transition-transform">
-            <Music className="w-5 h-5 stroke-[2.5]" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-900 border-2 border-amber-500/60 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0 relative">
+            <img
+              src="./icons/degira-van.jpg"
+              alt="DeGira Camioneta VW Hippie Años 60"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 ring-1 ring-inset ring-amber-400/40 rounded-xl pointer-events-none" />
           </div>
           <div>
             <div className="flex items-center space-x-1">
               <span className="font-extrabold text-base tracking-tight text-slate-100 font-display">
-                Suena<span className="text-amber-400">BA</span>
+                De<span className="text-amber-400">Gira</span>
               </span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-gradient-to-r from-amber-500/15 to-orange-500/15 text-amber-400 border border-amber-500/30">
                 VIVO
               </span>
             </div>
@@ -139,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenShare && (
             <button
               onClick={onOpenShare}
-              title="Compartir SuenaBA con amigos o músicos"
+              title="Compartir DeGira con amigos o músicos"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
               aria-label="Compartir app"
             >

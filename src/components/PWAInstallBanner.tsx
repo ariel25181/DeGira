@@ -21,7 +21,7 @@ export const PWAInstallBanner: React.FC = () => {
             <Smartphone className="w-3.5 h-3.5" />
           </div>
           <span className="text-slate-200 truncate">
-            <strong>Instalá SuenaBA en tu celular</strong> (Android o iPhone)
+            <strong>Instalá DeGira en tu celular</strong> (Android o iPhone)
           </span>
         </div>
 
@@ -61,11 +61,11 @@ export const PWAInstallBanner: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-10 h-10 rounded-xl overflow-hidden border border-amber-500/40 shrink-0">
-                  <img src="./pwa-192x192.png" alt="SuenaBA Icon" className="w-full h-full object-cover" />
+                  <img src="./icons/degira-van.jpg" alt="DeGira Camioneta VW Icon" className="w-full h-full object-cover" />
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-100 font-display text-base">
-                    Instalar SuenaBA en tu Celular
+                    Instalar DeGira en tu Celular
                   </h3>
                   <p className="text-xs text-slate-400">
                     Funciona como app nativa sin ocupar espacio
@@ -101,7 +101,7 @@ export const PWAInstallBanner: React.FC = () => {
                 <li className="flex items-start space-x-2">
                   <span className="font-bold text-amber-400">3.</span>
                   <span>
-                    Tocá <strong>"Agregar"</strong> arriba a la derecha. ¡Listo! Ya tenés el ícono dorado de SuenaBA en tu pantalla de inicio y abre a pantalla completa.
+                    Tocá <strong>"Agregar"</strong> arriba a la derecha. ¡Listo! Ya tenés el ícono de la combi VW de DeGira en tu pantalla de inicio y abre a pantalla completa.
                   </span>
                 </li>
               </ol>
