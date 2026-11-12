@@ -9,7 +9,7 @@ test('ROLE_ACTIVITIES covers all roles with valid sequences', () => {
   for (const role of roles) {
     const acts = ROLE_ACTIVITIES[role];
     assert.ok(acts, `Role ${role} must have defined activities`);
-    assert.ok(acts.length >= 3, `Role ${role} must have at least 3 activities for navigation`);
+    assert.ok(acts.length >= 2, `Role ${role} must have at least 2 activities for navigation`);
 
     // Verify unique ids per role
     const ids = acts.map((a) => a.id);
@@ -27,37 +27,37 @@ test('ROLE_ACTIVITIES covers all roles with valid sequences', () => {
   }
 });
 
-test('ROLE_ACTIVITIES forward and backward sequential order', () => {
+test('ROLE_ACTIVITIES forward and backward sequential order for Musician', () => {
   const musicoActivities = ROLE_ACTIVITIES.musico;
 
-  // Starting at 0
+  // Starting at 0: convocatorias
   let currentIndex = 0;
   assert.strictEqual(musicoActivities[currentIndex].id, 'convocatorias');
 
-  // Navigate forward
+  // Navigate forward to 1: acuerdos
   currentIndex++;
-  assert.strictEqual(musicoActivities[currentIndex].id, 'disponibilidad');
+  assert.strictEqual(musicoActivities[currentIndex].id, 'acuerdos');
 
-  // Navigate forward
+  // Navigate forward to 2: perfil
   currentIndex++;
-  assert.strictEqual(musicoActivities[currentIndex].id, 'reservas');
+  assert.strictEqual(musicoActivities[currentIndex].id, 'perfil');
 
-  // Navigate backward
+  // Navigate backward to 1: acuerdos
   currentIndex--;
-  assert.strictEqual(musicoActivities[currentIndex].id, 'disponibilidad');
+  assert.strictEqual(musicoActivities[currentIndex].id, 'acuerdos');
 
-  // Navigate backward to 0
+  // Navigate backward to 0: convocatorias
   currentIndex--;
   assert.strictEqual(musicoActivities[currentIndex].id, 'convocatorias');
   assert.strictEqual(currentIndex, 0);
 });
 
-test('Anfitrión bar activities cover open calls, reservations, agreements, catalog and venue profile', () => {
+test('Anfitrión bar activities cover open calls, agreements, and venue profile only', () => {
   const barActs = ROLE_ACTIVITIES.bar.map((a) => a.id);
-  assert.deepStrictEqual(barActs, ['convocatorias', 'reservas', 'acuerdos', 'cartelera', 'perfil']);
+  assert.deepStrictEqual(barActs, ['convocatorias', 'acuerdos', 'perfil']);
 });
 
-test('Público general activities cover catalog, reservations, venues and preferences', () => {
+test('Público general activities strictly cover catalog and profile only', () => {
   const publicActs = ROLE_ACTIVITIES.espectador.map((a) => a.id);
-  assert.deepStrictEqual(publicActs, ['cartelera', 'reservas', 'convocatorias', 'perfil']);
+  assert.deepStrictEqual(publicActs, ['cartelera', 'perfil']);
 });

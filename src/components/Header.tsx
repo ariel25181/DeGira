@@ -51,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
         {/* Logo */}
         <div
-          onClick={() => onSelectTab('cartelera')}
+          onClick={() => onSelectTab(role === 'espectador' ? 'cartelera' : 'convocatorias')}
           className="flex items-center space-x-2.5 cursor-pointer group"
         >
           <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-900 border-2 border-amber-500/60 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0 relative">
@@ -71,99 +71,34 @@ export const Header: React.FC<HeaderProps> = ({
                 VIVO
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium leading-none truncate max-w-[130px] sm:max-w-none">
-              Hola, <span className="text-amber-400 font-semibold">{userDisplayName}</span>
+            <p className="text-[10px] text-slate-300 font-medium leading-none truncate max-w-[150px] sm:max-w-none">
+              Bienvenido, <span className="text-amber-400 font-bold">{userDisplayName || 'Usuario'}</span>
             </p>
           </div>
         </div>
 
-        {/* Role Switcher Pill - Airbnb Style */}
-        <div className="bg-slate-900 border border-slate-800 p-0.5 rounded-full flex items-center text-xs">
-          <button
-            onClick={() => setRole('musico')}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-full font-semibold transition-all ${
-              role === 'musico'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Music className="w-3.5 h-3.5" />
-            <span><span className="hidden sm:inline">Modo </span>Músico</span>
-          </button>
-
-          <button
-            onClick={() => setRole('bar')}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-full font-semibold transition-all ${
-              role === 'bar'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Wine className="w-3.5 h-3.5" />
-            <span><span className="hidden sm:inline">Modo </span>Bar</span>
-          </button>
-
-          <button
-            onClick={() => setRole('espectador')}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-full font-semibold transition-all ${
-              role === 'espectador'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Ticket className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Público</span>
-          </button>
+        {/* Role Badge (Clear identification of current isolated profile) */}
+        <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs shadow-inner">
+          {role === 'musico' ? (
+            <>
+              <Music className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-bold text-slate-200">Panel Músico</span>
+            </>
+          ) : role === 'bar' ? (
+            <>
+              <Wine className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-bold text-slate-200">Panel Bar</span>
+            </>
+          ) : (
+            <>
+              <Ticket className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-bold text-slate-200">Público General</span>
+            </>
+          )}
         </div>
 
-        {/* Right tools: Icon Menu, Notifications & Frame toggle */}
+        {/* Right tools: Notifications, Frame toggle & Account switch */}
         <div className="flex items-center space-x-1.5">
-          {/* Menu of Options / Activities icon button */}
-          {onOpenIconMenu && (
-            <button
-              onClick={onOpenIconMenu}
-              title="Ver menú de iconos con opciones del rol"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Guided Tour trigger */}
-          {onRestartTour && (
-            <button
-              onClick={onRestartTour}
-              title="Repetir tour guiado"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
-            >
-              <HelpCircle className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Share app button */}
-          {onOpenShare && (
-            <button
-              onClick={onOpenShare}
-              title="Compartir DeGira con amigos o músicos"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
-              aria-label="Compartir app"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Feedback / Bug tool icon button (Wrench) */}
-          {onOpenFeedback && (
-            <button
-              onClick={onOpenFeedback}
-              title="Reportar bug, sugerir mejora o dar feedback"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
-              aria-label="Reportar bug o feedback"
-            >
-              <Wrench className="w-4 h-4" />
-            </button>
-          )}
-
           {/* Mobile frame toggle (desktop only) */}
           <button
             onClick={() => setIsMobileFrame(!isMobileFrame)}
@@ -176,6 +111,18 @@ export const Header: React.FC<HeaderProps> = ({
               <Smartphone className="w-4 h-4 text-amber-400" />
             )}
           </button>
+
+          {/* Change account / Sign out */}
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              title="Cambiar de cuenta o cerrar sesión"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5 text-red-400" />
+              <span className="hidden sm:inline">Cuentas</span>
+            </button>
+          )}
 
           {/* Notifications button */}
           <button

@@ -23,93 +23,119 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab }) 
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800/80 px-2 py-1.5 safe-area-bottom">
-      <div className="max-w-md mx-auto grid grid-cols-6 gap-1">
-        {/* Tab 1: Cartelera BA (Función 3) */}
-        <button
-          onClick={() => onSelectTab('cartelera')}
-          className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'cartelera'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <CalendarDays className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">Cartelera</span>
-        </button>
+      {/* 1. ROL: ESPECTADOR (Solo Cartelera y Mi Perfil) */}
+      {role === 'espectador' && (
+        <div className="max-w-xs mx-auto grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onSelectTab('cartelera')}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all ${
+              activeTab === 'cartelera'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <CalendarDays className="w-5 h-5 mb-0.5" />
+            <span className="text-xs font-bold tracking-tight">Cartelera de Shows</span>
+          </button>
 
-        {/* Tab 2: Convocatorias (Función 1) */}
-        <button
-          onClick={() => onSelectTab('convocatorias')}
-          className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'convocatorias'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Radio className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">Convocatorias</span>
-          {openCallsCount > 0 && (
-            <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-amber-400" />
-          )}
-        </button>
+          <button
+            onClick={() => onSelectTab('perfil')}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all ${
+              activeTab === 'perfil'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <User className="w-5 h-5 mb-0.5" />
+            <span className="text-xs font-bold tracking-tight">Mi Perfil & Reservas</span>
+          </button>
+        </div>
+      )}
 
-        {/* Tab 3: Disponibilidad (Función 2) */}
-        <button
-          onClick={() => onSelectTab('disponibilidad')}
-          className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'disponibilidad'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Clock className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">Disponibles</span>
-          {availCount > 0 && (
-            <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-cyan-400" />
-          )}
-        </button>
+      {/* 2. ROL: MÚSICO (Convocatorias, Mis Propuestas & Recordatorios, Mi Perfil Musical) */}
+      {role === 'musico' && (
+        <div className="max-w-sm mx-auto grid grid-cols-3 gap-1.5">
+          <button
+            onClick={() => onSelectTab('convocatorias')}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'convocatorias'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Radio className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Convocatorias</span>
+            {openCallsCount > 0 && (
+              <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-amber-400" />
+            )}
+          </button>
 
-        {/* Tab 4: Acuerdos & Ratings */}
-        <button
-          onClick={() => onSelectTab('acuerdos')}
-          className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'acuerdos'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Handshake className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">Acuerdos</span>
-        </button>
+          <button
+            onClick={() => onSelectTab('acuerdos')}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'acuerdos'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Handshake className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Mis Propuestas</span>
+          </button>
 
-        {/* Tab: Reservas (estilo Airbnb) */}
-        <button
-          onClick={() => onSelectTab('reservas')}
-          className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'reservas'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Ticket className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">Reservas</span>
-        </button>
+          <button
+            onClick={() => onSelectTab('perfil')}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'perfil'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <User className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Mi Banda & Rider</span>
+          </button>
+        </div>
+      )}
 
-        {/* Tab 5: Mi Perfil & Reputación */}
-        <button
-          onClick={() => onSelectTab('perfil')}
-          className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
-            activeTab === 'perfil'
-              ? 'text-amber-400 font-bold bg-amber-500/10'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <User className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">
-            {role === 'bar' ? 'Mi Bar' : role === 'musico' ? 'Mi Banda' : 'Perfil'}
-          </span>
-        </button>
-      </div>
+      {/* 3. ROL: BAR (Mis Eventos & Estados, Postulaciones de Músicos, Mi Bar & Puerta) */}
+      {role === 'bar' && (
+        <div className="max-w-sm mx-auto grid grid-cols-3 gap-1.5">
+          <button
+            onClick={() => onSelectTab('convocatorias')}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'convocatorias'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Radio className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Mis Eventos</span>
+          </button>
+
+          <button
+            onClick={() => onSelectTab('acuerdos')}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'acuerdos'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Handshake className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Postulaciones</span>
+          </button>
+
+          <button
+            onClick={() => onSelectTab('perfil')}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all ${
+              activeTab === 'perfil'
+                ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <User className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] font-bold tracking-tight">Mi Bar & Sala</span>
+          </button>
+        </div>
+      )}
     </nav>
   );
 };

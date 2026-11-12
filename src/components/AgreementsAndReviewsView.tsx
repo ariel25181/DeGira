@@ -12,6 +12,9 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  Bell,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { LiveShowConfirmed } from '../types/index.ts';
@@ -42,9 +45,15 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     liveShows,
     openCalls,
     musicianAvailabilities,
+    eventProposals,
+    slotBids,
+    sendMusicianProposalReminder,
+    retractMusicianSlotBid,
+    respondToSlotBid,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'pending_reviews' | 'upcoming' | 'applications'>('pending_reviews');
+  const [retractionFeedback, setRetractionFeedback] = useState<{ id: string; msg: string; success: boolean } | null>(null);
 
   // Past shows that require review (either musician reviewing venue or venue reviewing musician)
   const pastShowsNeedingReview = liveShows.filter((show) => {
@@ -58,6 +67,9 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 
   // Upcoming confirmed shows
   const upcomingShows = liveShows.filter((show) => !show.isCompleted);
+
+  // DeGira: Propuestas enviadas por el músico a bares
+  const mySlotBids = slotBids.filter((b) => b.musicianId === currentMusician?.id);
 
   // Musician's submitted applications across all calls
   const myApplications = openCalls.flatMap((call) =>
@@ -292,61 +304,262 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         </div>
       )}
 
-      {/* SubTab 3: Postulaciones Enviadas */}
+      {/* SubTab 3: Propuestas y Postulaciones Enviadas a Bares */}
       {activeSubTab === 'applications' && (
         <div className="space-y-4">
           <div className="text-xs text-slate-400">
-            Seguimiento de las propuestas de fecha que enviaste a bares de Buenos Aires:
+            Seguimiento de las propuestas de fecha que enviaste a bares de Buenos Aires (recordatorios, retracciones y contraofertas):
           </div>
 
-          {myApplications.length === 0 ? (
+          {/* Feedback toast for retraction */}
+          {retractionFeedback && (
+            <div
+              className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between animate-in fade-in ${
+                retractionFeedback.success
+                  ? 'bg-emerald-950/80 border border-emerald-500/40 text-emerald-200'
+                  : 'bg-rose-950/80 border border-rose-500/40 text-rose-200'
+              }`}
+            >
+              <span>{retractionFeedback.msg}</span>
+              <button
+                onClick={() => setRetractionFeedback(null)}
+                className="text-[10px] uppercase font-bold underline ml-2"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+
+          {mySlotBids.length === 0 && myApplications.length === 0 ? (
             <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
-              <p className="text-slate-300 font-medium">No enviaste postulaciones todavía.</p>
+              <p className="text-slate-300 font-medium">No enviaste propuestas todavía.</p>
               <p className="text-xs text-slate-500">
-                Mirá la pestaña de "Convocatorias" y postulate a las fechas que te interesen.
+                Mirá la pestaña de "Convocatorias" y postulate a los horarios de show que te interesen.
               </p>
             </div>
           ) : (
-            myApplications.map((app) => (
-              <div
-                key={app.id}
-                className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="font-bold text-slate-100 text-sm">{app.callVenue}</div>
-                    <div className="text-slate-400">
-                      Fecha: {formatDateBA(app.callDate)} ({app.callNeighborhood})
-                    </div>
-                  </div>
+            <div className="space-y-3">
+              {/* DeGira Slot Bids */}
+              {mySlotBids.map((bid) => {
+                const event = eventProposals.find((e) => e.id === bid.eventId);
+                const slot = event?.slots.find((s) => s.id === bid.slotId);
+                const eventStartTime = slot?.startTime || event?.startTime || '21:00';
+                const eventDateStr = event?.date || '2026-11-28';
+                const eventDateTime = new Date(`${eventDateStr}T${eventStartTime}`).getTime();
+                const now = Date.now();
+                const hoursRemaining = (eventDateTime - now) / (1000 * 60 * 60);
+                const canRetract = hoursRemaining >= 24 && !bid.retracted && bid.status !== 'rechazada';
 
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                      app.status === 'aceptada'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : app.status === 'rechazada'
-                        ? 'bg-rose-500/20 text-rose-400'
-                        : 'bg-amber-500/20 text-amber-400'
+                // Check clash with another active bid of this musician
+                const hasClash = mySlotBids.some(
+                  (other) =>
+                    other.id !== bid.id &&
+                    !other.retracted &&
+                    other.status !== 'rechazada' &&
+                    eventProposals.find((ev) => ev.id === other.eventId)?.date === eventDateStr
+                );
+
+                return (
+                  <div
+                    key={bid.id}
+                    className={`bg-slate-900/90 border rounded-2xl p-4 sm:p-5 space-y-3 shadow-md ${
+                      bid.status === 'aceptada'
+                        ? 'border-emerald-500/40'
+                        : bid.retracted
+                        ? 'border-slate-800 opacity-60'
+                        : hasClash
+                        ? 'border-amber-500/40'
+                        : 'border-slate-800'
                     }`}
                   >
-                    {app.status === 'aceptada'
-                      ? 'Aceptada & Confirmada'
-                      : app.status === 'rechazada'
-                      ? 'No seleccionada'
-                      : 'En evaluación por el bar'}
-                  </span>
-                </div>
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-100 text-sm font-display">
+                            {event?.title || 'Propuesta de Evento Musical'}
+                          </h4>
+                          {hasClash && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 border border-amber-500/40 text-amber-300">
+                              <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              <span>Clash detectado en fecha</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400 flex items-center space-x-1.5 mt-0.5">
+                          <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>
+                            {event?.venueName} • {event?.venueNeighborhood}
+                          </span>
+                        </div>
+                      </div>
 
-                <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 italic">
-                  "{app.note}"
-                </div>
+                      {/* Status badge */}
+                      <div>
+                        <span
+                          className={`px-2.5 py-1 rounded-full font-bold text-[10px] inline-block uppercase border ${
+                            bid.status === 'aceptada'
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                              : bid.retracted
+                              ? 'bg-slate-800 text-slate-400 border-slate-700'
+                              : bid.status === 'contraoferta_bar'
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse'
+                              : bid.status === 'rechazada'
+                              ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                              : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                          }`}
+                        >
+                          {bid.retracted
+                            ? 'Retractada por vos'
+                            : bid.status === 'aceptada'
+                            ? 'Aceptada por el Bar'
+                            : bid.status === 'contraoferta_bar'
+                            ? 'Contraoferta del Bar'
+                            : bid.status === 'rechazada'
+                            ? 'Rechazada'
+                            : 'Pendiente de Respuesta'}
+                        </span>
+                      </div>
+                    </div>
 
-                <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
-                  <span>Caché propuesto: <strong className="text-emerald-400">{formatARS(app.proposedCachetARS)}</strong></span>
-                  <span>Demo: {app.demoTrackTitle}</span>
+                    {/* Schedule & Cachet info */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-xs">
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-semibold block">Fecha</span>
+                        <strong className="text-slate-200">{formatDateBA(eventDateStr)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-semibold block">Horario Slot</span>
+                        <strong className="text-amber-400 font-bold">
+                          {slot ? `${slot.startTime} a ${slot.endTime} hs` : eventStartTime}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-semibold block">Caché Propuesto</span>
+                        <strong className="text-emerald-400 font-black">{formatARS(bid.proposedCachetARS)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Equipment Details */}
+                    <div className="text-[11px] text-slate-400 space-y-0.5">
+                      <div>Llevás: <strong className="text-slate-300">{bid.equipmentProvided}</strong></div>
+                      <div>Pedís al bar: <strong className="text-slate-300">{bid.equipmentNeeded}</strong></div>
+                    </div>
+
+                    {/* Reminder & Retract Actions */}
+                    {!bid.retracted && bid.status !== 'rechazada' && (
+                      <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                        {/* Reminder Button */}
+                        {bid.status === 'pendiente_bar' && (
+                          <button
+                            onClick={() => {
+                              const res = sendMusicianProposalReminder(bid.id);
+                              setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                          >
+                            <Bell className="w-3.5 h-3.5" />
+                            <span>
+                              {bid.reminderCount
+                                ? `Recordatorio enviado (${bid.reminderCount})`
+                                : 'Enviar Recordatorio al Bar'}
+                            </span>
+                          </button>
+                        )}
+
+                        {/* Counteroffer responses */}
+                        {bid.status === 'contraoferta_bar' && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-cyan-300 font-bold">
+                              Contraoferta: {formatARS(bid.proposedCachetARS)}
+                            </span>
+                            <button
+                              onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Contraoferta aceptada por el músico.')}
+                              className="px-3 py-1 bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs"
+                            >
+                              Aceptar
+                            </button>
+                            <button
+                              onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Rechazada por el músico.')}
+                              className="px-2.5 py-1 bg-slate-800 text-rose-400 rounded-lg text-xs"
+                            >
+                              Rechazar
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Retraction button enforcing 24h rule */}
+                        <div>
+                          {canRetract ? (
+                            <button
+                              onClick={() => {
+                                if (window.confirm('¿Seguro que querés retractarte de esta propuesta? El slot quedará libre para otros músicos.')) {
+                                  const res = retractMusicianSlotBid(bid.id);
+                                  setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/30 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Retractarme (hasta 24hs antes)</span>
+                            </button>
+                          ) : (
+                            <span
+                              className="text-[11px] text-slate-500 italic flex items-center gap-1 cursor-not-allowed"
+                              title="La app prohíbe retractarse con menos de 24 horas de antelación al inicio del show"
+                            >
+                              <Clock className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Retracción no disponible (faltan &lt; 24hs para el show)</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Legacy applications */}
+              {myApplications.map((app) => (
+                <div
+                  key={app.id}
+                  className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-bold text-slate-100 text-sm">{app.callVenue}</div>
+                      <div className="text-slate-400">
+                        Fecha: {formatDateBA(app.callDate)} ({app.callNeighborhood})
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
+                        app.status === 'aceptada'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : app.status === 'rechazada'
+                          ? 'bg-rose-500/20 text-rose-400'
+                          : 'bg-amber-500/20 text-amber-400'
+                      }`}
+                    >
+                      {app.status === 'aceptada'
+                        ? 'Aceptada & Confirmada'
+                        : app.status === 'rechazada'
+                        ? 'No seleccionada'
+                        : 'En evaluación por el bar'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 italic">
+                    "{app.note}"
+                  </div>
+
+                  <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <span>Caché propuesto: <strong className="text-emerald-400">{formatARS(app.proposedCachetARS)}</strong></span>
+                    <span>Demo: {app.demoTrackTitle}</span>
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </div>
       )}

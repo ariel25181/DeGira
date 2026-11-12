@@ -20,11 +20,21 @@ import {
   Share2,
   Wrench,
   X,
+  Key,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
 import { useApp } from '../../context/AppContext.tsx';
 import { TOUR, TourStep } from '../../content/tour.ts';
 import { UserRole } from '../../types/index.ts';
+import { saveActiveSession } from '../../lib/degiraSession.ts';
+import {
+  TEST_ACCOUNTS,
+  findTestAccountByEmail,
+  validateTestAccountPassword,
+  TestAccount,
+} from '../../data/testAccounts.ts';
 
 interface OnboardingFlowProps {
   onComplete: (role: UserRole) => void;
@@ -47,9 +57,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 }) => {
   const { signIn, signUp, state } = useSession();
   let setUserDisplayName: ((name: string) => void) | undefined;
+  let loginAsAccount: ((acc: TestAccount) => void) | undefined;
   try {
     const app = useApp();
     setUserDisplayName = app.setUserDisplayName;
+    loginAsAccount = app.loginAsAccount;
   } catch {
     // Safe fallback if mounted without AppProvider in isolated unit tests
   }
@@ -64,6 +76,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [remember24h, setRemember24h] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -96,6 +109,37 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setAuthLoading(true);
     setAuthError(null);
 
+    // 1. Check if email belongs to a pre-configured test account
+    const testAccount = findTestAccountByEmail(email);
+    if (testAccount) {
+      if (!validateTestAccountPassword(testAccount, password)) {
+        setAuthError(
+          `Contraseña incorrecta para ${testAccount.displayName}. La contraseña configurada es "${testAccount.password}" (o la universal "degira2026").`
+        );
+        setAuthLoading(false);
+        return;
+      }
+
+      // Valid test account
+      if (loginAsAccount) {
+        loginAsAccount(testAccount);
+      } else {
+        if (setUserDisplayName) setUserDisplayName(testAccount.displayName);
+        saveActiveSession({
+          role: testAccount.role,
+          userName: testAccount.displayName,
+          userEmail: testAccount.email,
+          remember24h,
+        });
+      }
+      setSelectedRole(testAccount.role);
+      setAuthLoading(false);
+      setTourIndex(0);
+      setStep('tour');
+      return;
+    }
+
+    // 2. Otherwise try standard auth
     try {
       const err = authMode === 'login'
         ? await signIn(email.trim(), password)
@@ -108,9 +152,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         // Success: record user name and move to Step 3 (Guided Tour)
         const nameToSave = displayName.trim() || email.split('@')[0];
         if (setUserDisplayName) setUserDisplayName(nameToSave);
-        try {
-          localStorage.setItem('suenaba:logged_user_name', nameToSave);
-        } catch {}
+        saveActiveSession({
+          role: selectedRole,
+          userName: nameToSave,
+          userEmail: email.trim(),
+          remember24h,
+        });
 
         setAuthLoading(false);
         setTourIndex(0);
@@ -120,11 +167,41 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       // In case of network failure or demo environment, advance gracefully
       const nameToSave = displayName.trim() || email.split('@')[0] || (selectedRole === 'bar' ? 'Bar Test 1' : selectedRole === 'musico' ? 'Músico Test 1' : 'Usuario Público 1');
       if (setUserDisplayName) setUserDisplayName(nameToSave);
-      try {
-        localStorage.setItem('suenaba:logged_user_name', nameToSave);
-      } catch {}
+      saveActiveSession({
+        role: selectedRole,
+        userName: nameToSave,
+        userEmail: email.trim() || `${selectedRole}@degira.com.ar`,
+        remember24h,
+      });
 
       setAuthLoading(false);
+      setTourIndex(0);
+      setStep('tour');
+    }
+  };
+
+  // Quick fill or 1-tap login with test account
+  const handleApplyTestAccount = (acc: TestAccount, autoLogin: boolean = false) => {
+    setEmail(acc.email);
+    setPassword(acc.password);
+    setSelectedRole(acc.role);
+    setDisplayName(acc.displayName);
+    setAuthMode('login');
+    setAuthError(null);
+
+    if (autoLogin) {
+      if (loginAsAccount) {
+        loginAsAccount(acc);
+      } else {
+        if (setUserDisplayName) setUserDisplayName(acc.displayName);
+        saveActiveSession({
+          role: acc.role,
+          userName: acc.displayName,
+          userEmail: acc.email,
+          remember24h,
+        });
+      }
+      setSelectedRole(acc.role);
       setTourIndex(0);
       setStep('tour');
     }
@@ -133,10 +210,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   // Demo / Guest fast access
   const handleGuestOrDemoAccess = () => {
     const demoName = selectedRole === 'bar' ? 'Bar Test 1' : selectedRole === 'musico' ? 'Músico Test 1' : 'Usuario Público 1';
+    const demoEmail = selectedRole === 'bar' ? 'bar1@degira.com.ar' : selectedRole === 'musico' ? 'musico1@degira.com.ar' : 'publico1@degira.com.ar';
     if (setUserDisplayName) setUserDisplayName(demoName);
-    try {
-      localStorage.setItem('suenaba:logged_user_name', demoName);
-    } catch {}
+    saveActiveSession({
+      role: selectedRole,
+      userName: demoName,
+      userEmail: demoEmail,
+      remember24h,
+    });
 
     setTourIndex(0);
     setStep('tour');
@@ -144,12 +225,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Handler for Tour Completion (Step 3 -> Step 4)
   const handleFinishTour = () => {
-    try {
-      localStorage.setItem('suenaba:onboarding_completed:v1', 'true');
-      localStorage.setItem('suenaba:user_role', selectedRole);
-    } catch {
-      // ignore
-    }
     onComplete(selectedRole);
   };
 
@@ -499,6 +574,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </div>
               </div>
 
+              {/* Opción permanecer logueado (24hs) */}
+              <label className="flex items-center gap-2.5 cursor-pointer text-xs text-slate-300 py-1 select-none">
+                <input
+                  type="checkbox"
+                  checked={remember24h}
+                  onChange={(e) => setRemember24h(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900 accent-amber-500"
+                />
+                <span className="font-medium text-slate-300">
+                  Quiero permanecer logueado (duración 24 horas)
+                </span>
+              </label>
+
               {authError && (
                 <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-200">
                   {authError}
@@ -527,7 +615,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <button
                   type="button"
                   onClick={handleGuestOrDemoAccess}
-                  className="w-full py-2.5 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 text-xs font-bold text-slate-200 transition-colors"
+                  className="w-full py-2 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 text-xs font-bold text-slate-200 transition-colors"
                 >
                   Continuar como Espectador Invitado (Sin contraseña)
                 </button>
@@ -540,6 +628,78 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   ⚡ Ingreso rápido de demostración ({selectedRole === 'bar' ? 'Modo Bar' : 'Modo Músico'})
                 </button>
               )}
+            </div>
+
+            {/* DIRECTORY OF TEST ACCOUNTS FOR EASY CREDENTIAL TESTING */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Cuentas y Contraseñas de Prueba</span>
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  (Clic para rellenar o entrar directo)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                {TEST_ACCOUNTS.map((acc) => (
+                  <div
+                    key={acc.id}
+                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/90 hover:border-slate-700 flex items-center justify-between gap-2 text-left transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={acc.avatarUrl}
+                        alt={acc.displayName}
+                        className="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-800"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <strong className="text-xs text-slate-200 font-bold truncate">
+                            {acc.displayName}
+                          </strong>
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${
+                              acc.role === 'bar'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : acc.role === 'musico'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            }`}
+                          >
+                            {acc.role === 'bar' ? 'Bar' : acc.role === 'musico' ? 'Músico' : 'Público'}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono truncate">
+                          <span className="text-slate-300">{acc.email}</span> • Pass:{' '}
+                          <span className="text-amber-300 font-bold">{acc.password}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyTestAccount(acc, false)}
+                        title="Rellenar campos de login"
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition-colors"
+                      >
+                        Rellenar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyTestAccount(acc, true)}
+                        title="Ingresar directamente con esta cuenta"
+                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black transition-colors flex items-center gap-1 shadow-sm"
+                      >
+                        <span>Entrar</span>
+                        <ArrowRight className="w-3 h-3 stroke-[3]" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

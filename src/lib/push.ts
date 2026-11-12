@@ -70,3 +70,74 @@ export async function disablePush(api: Api, env: PushEnv = getPushEnv()): Promis
   if (sub) { const endpoint = sub.endpoint; await api.removePush(endpoint).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
   return pushState(env);
 }
+
+/** Registra el Subscription Object directamente en el endpoint backend (/api/push/subscribe) */
+export async function registerPushWithBackend(
+  subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } },
+  userRole?: string,
+  userId?: string
+): Promise<{ success: boolean; id?: string }> {
+  try {
+    const res = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription,
+        userRole: userRole || 'espectador',
+        userId: userId || 'anon',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('[Push Backend] Registro opcional local/dev:', err);
+    return { success: false };
+  }
+}
+
+/** Dispara una notificación push a través del backend (/api/push/send) */
+export async function sendPushNotification(payload: {
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  targetRole?: string;
+  userId?: string;
+}): Promise<{ success: boolean; sentCount?: number }> {
+  try {
+    // 1. Enviar al endpoint backend para suscripciones remotas
+    const res = await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({ success: false }));
+
+    // 2. Si el navegador actual tiene permisos concedidos y ServiceWorker activo, mostrar notificación local inmediata
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification(payload.title, {
+            body: payload.body,
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png',
+            tag: payload.tag || 'degira-alert',
+            data: { url: payload.url || '/' },
+          });
+        });
+      } else {
+        new Notification(payload.title, {
+          body: payload.body,
+          icon: '/pwa-192x192.png',
+        });
+      }
+    }
+
+    return { success: true, sentCount: data.sentCount || 1 };
+  } catch (err) {
+    console.warn('[Push Dispatch] Error enviando push:', err);
+    return { success: false };
+  }
+}
+

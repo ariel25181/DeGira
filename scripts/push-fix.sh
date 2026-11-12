@@ -152,6 +152,9 @@ else
   echo "✅ Push completado tras sincronización."
 fi
 
+# Limpiar remote para no dejar el token almacenado en texto plano en .git/config
+git remote set-url origin "$REPO_DEFAULT" 2>/dev/null || true
+
 # 6. Deploy opcional a GitHub Pages si se solicitó con --pages
 if [ "$DEPLOY_PAGES" -eq 1 ]; then
   echo "🌐 Publicando en la rama gh-pages (GitHub Pages)..."
