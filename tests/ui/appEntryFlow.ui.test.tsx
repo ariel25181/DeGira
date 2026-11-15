@@ -153,10 +153,10 @@ describe('ActivityToolbar & RoleIconMenuModal', () => {
     const prevBtn = screen.getByRole('button', { name: /Atrás/ });
     assert.strictEqual((prevBtn as HTMLButtonElement).disabled, true);
 
-    // Click Adelante -> moves to reservas
+    // Click Adelante -> moves to acuerdos
     const nextBtn = screen.getByRole('button', { name: /Adelante/ });
     fireEvent.click(nextBtn);
-    assert.strictEqual(screen.getByTestId('current-tab').textContent, 'reservas');
+    assert.strictEqual(screen.getByTestId('current-tab').textContent, 'acuerdos');
 
     // Now Backward is enabled -> click Atrás -> moves back to convocatorias
     assert.strictEqual((prevBtn as HTMLButtonElement).disabled, false);
@@ -184,13 +184,13 @@ describe('ActivityToolbar & RoleIconMenuModal', () => {
     // Check modal contents
     screen.getByText('Menú de Actividades');
     screen.getByText('Modo Bar');
-    screen.getByText('Convocatorias de Bares');
-    screen.getByText('Reservas & Solicitudes');
-    screen.getByText('Acuerdos & Pagos Protegidos');
+    screen.getByText('Mis Eventos & Estados');
+    screen.getByText('Postulaciones de Músicos');
+    screen.getByText('Mi Bar & Control de Puerta');
 
     // Click on an activity card
-    fireEvent.click(screen.getByText('Reservas & Solicitudes'));
-    assert.strictEqual(selected, 'reservas');
+    fireEvent.click(screen.getByText('Postulaciones de Músicos'));
+    assert.strictEqual(selected, 'acuerdos');
 
     // Test actions
     fireEvent.click(screen.getByText('Tour'));
