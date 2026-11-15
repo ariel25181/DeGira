@@ -19,7 +19,7 @@ import { Review360Modal } from './components/modals/Review360Modal.tsx';
 import { NotificationsDrawer } from './components/modals/NotificationsDrawer.tsx';
 import { ShareModal } from './components/modals/ShareModal.tsx';
 import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
-import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
+import { PWAInstallBanner, PWAInstallGuideModal } from './components/PWAInstallBanner.tsx';
 import { SessionProvider, useSession } from './context/SessionContext.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole, EventProposal } from './types/index.ts';
@@ -79,9 +79,10 @@ function MainApp() {
   // Icon menu modal state
   const [isIconMenuOpen, setIsIconMenuOpen] = useState<boolean>(false);
 
-  // Share and Feedback modal states
+  // Share, Feedback and PWA Install modal states
   const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+  const [isInstallGuideOpen, setIsInstallGuideOpen] = useState<boolean>(false);
 
   // Mobile frame simulator toggle
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -239,11 +240,12 @@ function MainApp() {
           onChangeRole={handleRestartOnboarding}
           onOpenShare={() => setIsShareOpen(true)}
           onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onOpenInstall={() => setIsInstallGuideOpen(true)}
           onSignOut={handleSignOut}
         />
 
         {/* PWA In-App Install Prompt Banner */}
-        <PWAInstallBanner />
+        <PWAInstallBanner onOpenGuide={() => setIsInstallGuideOpen(true)} />
 
         {/* Current Active User Greeting & Account Status */}
         <div className="bg-slate-900/90 border-b border-slate-800/80 px-4 py-2 flex items-center justify-between text-xs text-slate-400 gap-2">
@@ -436,6 +438,7 @@ function MainApp() {
           startAtTour={isTourOnly}
           onOpenShare={() => setIsShareOpen(true)}
           onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onOpenInstall={() => setIsInstallGuideOpen(true)}
           onClose={() => setIsOnboardingOpen(false)}
         />
       )}
@@ -452,6 +455,12 @@ function MainApp() {
         onClose={() => setIsFeedbackOpen(false)}
         currentRole={role}
         currentTab={activeTab}
+      />
+
+      {/* PWA Install Guide Modal (above OnboardingFlow) */}
+      <PWAInstallGuideModal
+        isOpen={isInstallGuideOpen}
+        onClose={() => setIsInstallGuideOpen(false)}
       />
     </div>
   );

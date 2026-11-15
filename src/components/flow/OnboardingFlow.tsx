@@ -23,9 +23,13 @@ import {
   Key,
   Copy,
   Check,
+  Download,
+  Smartphone,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
 import { useApp } from '../../context/AppContext.tsx';
+import { usePWAInstall } from '../../hooks/usePWAInstall.ts';
+import { PWAInstallGuideModal } from '../PWAInstallBanner.tsx';
 import { TOUR, TourStep } from '../../content/tour.ts';
 import { UserRole } from '../../types/index.ts';
 import { saveActiveSession } from '../../lib/degiraSession.ts';
@@ -42,6 +46,7 @@ interface OnboardingFlowProps {
   startAtTour?: boolean;
   onOpenShare?: () => void;
   onOpenFeedback?: () => void;
+  onOpenInstall?: () => void;
   onClose?: () => void;
 }
 
@@ -53,9 +58,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   startAtTour = false,
   onOpenShare,
   onOpenFeedback,
+  onOpenInstall,
   onClose,
 }) => {
   const { signIn, signUp, state } = useSession();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
+  const [showLocalInstallGuide, setShowLocalInstallGuide] = useState(false);
+
+  const handleInstallAction = async () => {
+    if (isInstallable) {
+      const accepted = await install();
+      if (accepted) return;
+    }
+    if (onOpenInstall) {
+      onOpenInstall();
+    } else {
+      setShowLocalInstallGuide(true);
+    }
+  };
   let setUserDisplayName: ((name: string) => void) | undefined;
   let loginAsAccount: ((acc: TestAccount) => void) | undefined;
   try {
@@ -233,15 +253,29 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
 
         {/* Top Progress indicator bar with quick actions */}
-        <div className="px-5 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-slate-800/80 bg-slate-950/60">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2 gap-2">
+        <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-slate-800/80 bg-slate-950/60">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2 gap-1.5">
             <span className="font-semibold text-amber-400 flex items-center gap-1.5 shrink-0">
               <Sparkles className="w-3.5 h-3.5" />
-              DeGira • Bienvenida
+              <span>DeGira</span>
+              <span className="hidden sm:inline">• Bienvenida</span>
             </span>
 
-            {/* Quick utility buttons: Compartir and Feedback */}
+            {/* Quick utility buttons: Instalar, Compartir and Feedback */}
             <div className="flex items-center gap-1.5">
+              {!isInstalled && (
+                <button
+                  type="button"
+                  onClick={handleInstallAction}
+                  aria-label="Instalar aplicación"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30 text-[11px] font-bold transition-all active:scale-95"
+                  title="Instalar DeGira en tu celular o computadora"
+                >
+                  <Download className="w-3.5 h-3.5 stroke-[2.3]" />
+                  <span>Instalar</span>
+                </button>
+              )}
+
               {onOpenShare && (
                 <button
                   type="button"
@@ -272,28 +306,29 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   type="button"
                   onClick={onClose}
                   aria-label="Cerrar ventana"
-                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors ml-1"
+                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-colors ml-0.5"
                   title="Cerrar y continuar"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
-
-              <span className="font-medium text-slate-400 hidden sm:inline ml-1">
-                {step === 'profile_select' && 'Paso 1 de 3: Selección de Perfil'}
-                {step === 'auth' && 'Paso 2 de 3: Ingreso a la Cuenta'}
-                {step === 'tour' && `Paso 3 de 3: Tour Guiado (${tourIndex + 1}/${tourSteps.length})`}
-              </span>
             </div>
           </div>
 
-          <div className="flex gap-1.5 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-300 rounded-full ${
-                step === 'profile_select' ? 'w-1/3 bg-amber-400' :
-                step === 'auth' ? 'w-2/3 bg-amber-400' : 'w-full bg-amber-400'
-              }`}
-            />
+          <div className="flex items-center gap-2.5">
+            <div className="flex gap-1.5 h-1.5 flex-1 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 rounded-full ${
+                  step === 'profile_select' ? 'w-1/3 bg-amber-400' :
+                  step === 'auth' ? 'w-2/3 bg-amber-400' : 'w-full bg-amber-400'
+                }`}
+              />
+            </div>
+            <span className="text-[11px] font-medium text-slate-400 shrink-0 whitespace-nowrap">
+              {step === 'profile_select' && 'Paso 1 de 3'}
+              {step === 'auth' && 'Paso 2 de 3'}
+              {step === 'tour' && `Paso 3 de 3 (${tourIndex + 1}/${tourSteps.length})`}
+            </span>
           </div>
         </div>
 
@@ -315,6 +350,32 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 Elegí tu perfil para personalizar la cartelera, convocatorias de bares y opciones de navegación.
               </p>
             </div>
+
+            {!isInstalled && (
+              <div className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-slate-950/90 to-amber-500/10 border border-emerald-500/40 shadow-sm">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 flex items-center justify-center shrink-0">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-100 leading-tight">
+                      Instalá la App DeGira
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                      Acceso directo en tu inicio
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleInstallAction}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+                >
+                  <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>{isInstallable ? 'Instalar ahora' : 'Instalar App'}</span>
+                </button>
+              </div>
+            )}
 
             <div className="space-y-3">
               {/* Option 1: Anfitrión de Bar */}
@@ -790,6 +851,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         )}
 
       </div>
+
+      {!onOpenInstall && (
+        <PWAInstallGuideModal
+          isOpen={showLocalInstallGuide}
+          onClose={() => setShowLocalInstallGuide(false)}
+        />
+      )}
     </div>
   );
 };

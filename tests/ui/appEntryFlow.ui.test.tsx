@@ -6,6 +6,7 @@ import { render, screen, fireEvent, within, cleanup, act } from '@testing-librar
 import { OnboardingFlow } from '../../src/components/flow/OnboardingFlow.tsx';
 import { ActivityToolbar, RoleIconMenuModal, ROLE_ACTIVITIES } from '../../src/components/flow/RoleActivityNav.tsx';
 import { SessionProvider } from '../../src/context/SessionContext.tsx';
+import { __resetPWAInstallStateForTest } from '../../src/hooks/usePWAInstall.ts';
 import type { UserRole } from '../../src/types/index.ts';
 
 // Mock minimal Supabase client for testing
@@ -233,5 +234,66 @@ describe('ActivityToolbar & RoleIconMenuModal', () => {
       fireEvent.click(feedbackBtn);
     });
     assert.strictEqual(feedbackTriggered, true);
+  });
+
+  it('shows Instalar App icon and banner on initial entry, opens guide modal, and hides in standalone mode', async () => {
+    const origMatchMedia = window.matchMedia;
+    try {
+      (window as any).matchMedia = () => ({
+        matches: false,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      });
+      __resetPWAInstallStateForTest();
+
+      await act(async () => {
+        render(
+          <SessionProvider client={mockClient}>
+            <OnboardingFlow onComplete={() => {}} />
+          </SessionProvider>
+        );
+      });
+
+      // Install button in header + banner card in Step 1 should be immediately visible
+      const headerInstallBtn = screen.getByRole('button', { name: /Instalar aplicación/i });
+      screen.getByText('Instalá la App DeGira');
+      screen.getByRole('button', { name: /Instalar App/i });
+
+      // Clicking opens the install guide modal when beforeinstallprompt hasn't fired
+      await act(async () => {
+        fireEvent.click(headerInstallBtn);
+      });
+      screen.getByText('Instalar DeGira en tu Celular');
+      screen.getByText(/En Android \(Chrome \/ Edge \/ Brave\):/);
+      screen.getByText(/En iPhone \(Safari\):/);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Entendido'));
+      });
+      assert.strictEqual(screen.queryByText('Instalar DeGira en tu Celular'), null);
+
+      cleanup();
+
+      // In standalone mode, install controls should be hidden
+      (window as any).matchMedia = () => ({
+        matches: true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      });
+      __resetPWAInstallStateForTest();
+
+      await act(async () => {
+        render(
+          <SessionProvider client={mockClient}>
+            <OnboardingFlow onComplete={() => {}} />
+          </SessionProvider>
+        );
+      });
+      assert.strictEqual(screen.queryByRole('button', { name: /Instalar aplicación/i }), null);
+      assert.strictEqual(screen.queryByText('Instalá la App DeGira'), null);
+    } finally {
+      (window as any).matchMedia = origMatchMedia;
+      __resetPWAInstallStateForTest();
+    }
   });
 });
