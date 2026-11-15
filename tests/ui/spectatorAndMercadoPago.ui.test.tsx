@@ -63,12 +63,12 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
     screen.getByText(/¡Bienvenido a DeGira,/);
     screen.getByText('Público General');
     screen.getByText(/Mis Reservas/);
-    screen.getByText(/Preferencias/);
-    screen.getByText(/Cuentas Test/);
+    screen.getByText(/Por Calificar/);
+    screen.getByText(/Mis Datos/);
 
     // Verify existing test reservation
     screen.getByText('Músico Test 1');
-    screen.getByText(/Bar Test 1/);
+    assert.ok(screen.getAllByText(/Bar Test 1/).length >= 1);
     screen.getByText(/Pagado con Mercado Pago/);
 
     // Verify QR pass toggle
