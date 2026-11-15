@@ -133,7 +133,11 @@ export const UploadReceiptModal: React.FC<UploadReceiptModalProps> = ({
     setIsAnalyzing(true);
     setOcrResult(null);
     try {
-      const result = await analyzePaymentReceipt(dataUrl, reservation.eventCode);
+      const result = await analyzePaymentReceipt(
+        dataUrl,
+        reservation.eventCode,
+        reservation.totalARS
+      );
       setOcrResult(result);
     } catch {
       setOcrResult({

@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
 import { createServer as createViteServer } from 'vite';
+import { analyzePaymentReceiptOnServer, GeminiHttpError } from './server/gemini.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -156,6 +158,38 @@ app.post('/api/push/send', async (req, res) => {
     targetedCount: targets.length,
     errorsCount: errors.length,
   });
+});
+
+// Server-side Gemini API endpoint for multimodal payment receipt validation
+app.post('/api/gemini/analyze-receipt', async (req, res) => {
+  const { imageDataUrl, expectedEventCode, expectedAmountARS } = req.body || {};
+
+  if (!imageDataUrl || !expectedEventCode) {
+    return res.status(400).json({
+      error: 'imageDataUrl y expectedEventCode son obligatorios.',
+    });
+  }
+
+  try {
+    const result = await analyzePaymentReceiptOnServer({
+      imageDataUrl,
+      expectedEventCode,
+      expectedAmountARS:
+        expectedAmountARS !== undefined && expectedAmountARS !== null
+          ? Number(expectedAmountARS)
+          : undefined,
+    });
+    res.json(result);
+  } catch (err: any) {
+    const status =
+      err instanceof GeminiHttpError
+        ? err.statusCode
+        : typeof err?.status === 'number'
+        ? err.status
+        : 500;
+    const message = err?.message || 'Error al analizar el comprobante con Gemini.';
+    res.status(status).json({ error: message });
+  }
 });
 
 async function startServer() {
