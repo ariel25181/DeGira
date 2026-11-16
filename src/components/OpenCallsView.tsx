@@ -264,8 +264,17 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                       <strong className="text-slate-200">{formatDateBA(proposal.date)}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 text-[10px] uppercase font-semibold block">Capacidad Sala</span>
-                      <strong className="text-slate-200">{proposal.totalCapacity} personas</strong>
+                      <span className="text-slate-400 text-[10px] uppercase font-semibold block">Cupo Disponible</span>
+                      {proposal.remainingCapacity <= 0 ? (
+                        <strong className="text-rose-400 font-black">0 / {proposal.totalCapacity} pers. (Agotada)</strong>
+                      ) : (
+                        <strong className="text-slate-200">
+                          <span className={proposal.remainingCapacity < proposal.totalCapacity ? 'text-amber-400 font-black' : ''}>
+                            {proposal.remainingCapacity}
+                          </span>
+                          <span className="text-slate-400 font-semibold"> / {proposal.totalCapacity} pers.</span>
+                        </strong>
+                      )}
                     </div>
                     <div>
                       <span className="text-slate-400 text-[10px] uppercase font-semibold block">Caché Base</span>

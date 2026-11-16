@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   INITIAL_VENUES,
   INITIAL_MUSICIANS,
@@ -40,6 +40,10 @@ import {
   SpectatorBenefit,
 } from '../types/index.ts';
 import { calculateNewRating, calculateNewBreakdown } from '../utils/bookingLogic.ts';
+import {
+  applyPaymentConfirmationToEvent,
+  restoreCapacityOnReservationRelease,
+} from '../utils/capacityLogic.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { mapVenue, mapMusician, mapOpenCall, mapAvailability, mapLiveShow } from '../lib/supabaseMappers.ts';
 import {
@@ -368,7 +372,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}slotBids`, JSON.stringify(slotBids));
   }, [slotBids]);
 
+  const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
+
   useEffect(() => {
+    publicEventReservationsRef.current = publicEventReservations;
     localStorage.setItem(`${STORAGE_KEY_PREFIX}publicEventReservations`, JSON.stringify(publicEventReservations));
   }, [publicEventReservations]);
 
@@ -389,20 +396,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const updated = prev.map((res) => {
           if (res.status === 'pendiente_pago' && now > res.expiresAt) {
             hasChanges = true;
-            // Liberar cupo devolviendo disponibilidad
-            setEventProposals((events) =>
-              events.map((ev) => {
-                if (ev.id === res.eventId) {
-                  const restored = Math.min(ev.totalCapacity, ev.remainingCapacity + res.partySize);
-                  return {
-                    ...ev,
-                    remainingCapacity: restored,
-                    status: ev.status === 'agotada' && restored > 0 ? 'publicada' : ev.status,
-                  };
-                }
-                return ev;
-              })
-            );
             return {
               ...res,
               status: 'expirada' as const,
@@ -1645,56 +1638,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const confirmReservationPayment = (reservationId: string) => {
+    const targetRes = publicEventReservationsRef.current.find((r) => r.id === reservationId);
+    if (!targetRes || targetRes.status === 'confirmada') {
+      return;
+    }
+
+    const previousStatus = targetRes.status;
+    const qrCode = `DeGira:Reserva:${targetRes.eventId}:${targetRes.eventCode}:${targetRes.userId}:${targetRes.partySize}p`;
+
     setPublicEventReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          const qrCode = `DeGira:Reserva:${res.eventId}:${res.eventCode}:${res.userId}:${res.partySize}p`;
-          const updated: PublicEventReservation = {
-            ...res,
-            status: 'confirmada',
-            qrTicketCode: qrCode,
-            qrEmailSent: true,
-          };
-
-          // Descontar aforo de sala
-          setEventProposals((events) =>
-            events.map((ev) => {
-              if (ev.id === res.eventId) {
-                const newRemaining = Math.max(0, ev.remainingCapacity - res.partySize);
-                return {
-                  ...ev,
-                  remainingCapacity: newRemaining,
-                  status: newRemaining === 0 ? 'agotada' : ev.status,
-                };
-              }
-              return ev;
-            })
-          );
-
-          // Enviar Pase QR por email al usuario público
-          sendQrTicketEmail({
-            toEmail: res.userEmail,
-            userName: res.userName,
-            eventTitle: res.eventTitle,
-            venueName: res.venueName,
-            venueAddress: res.venueAddress,
-            eventDate: res.eventDate,
-            eventTime: res.eventStartTime,
-            partySize: res.partySize,
-            qrTicketCode: qrCode,
-          });
-
-          return updated;
-        }
-        return res;
-      })
+      prev.map((res) =>
+        res.id === reservationId && res.status !== 'confirmada'
+          ? {
+              ...res,
+              status: 'confirmada' as const,
+              qrTicketCode: qrCode,
+              qrEmailSent: true,
+            }
+          : res
+      )
     );
+
+    // Descontar cupo de personas en el evento a nivel superior (sin anidar setState)
+    setEventProposals((events) =>
+      events.map((ev) =>
+        ev.id === targetRes.eventId
+          ? applyPaymentConfirmationToEvent(ev, targetRes.partySize, previousStatus)
+          : ev
+      )
+    );
+
+    // Enviar Pase QR por email al usuario público
+    sendQrTicketEmail({
+      toEmail: targetRes.userEmail,
+      userName: targetRes.userName,
+      eventTitle: targetRes.eventTitle,
+      venueName: targetRes.venueName,
+      venueAddress: targetRes.venueAddress,
+      eventDate: targetRes.eventDate,
+      eventTime: targetRes.eventStartTime,
+      partySize: targetRes.partySize,
+      qrTicketCode: qrCode,
+    });
 
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
         title: '🎟️ Pago Confirmado & Pase QR Emitido',
-        message: 'El bar confirmó tu pago. Tu código QR de acceso está listo y fue enviado a tu correo.',
+        message: `El bar confirmó el pago de ${targetRes.userName} (${targetRes.partySize} ${targetRes.partySize === 1 ? 'persona' : 'personas'}) y se descontó el cupo del evento.`,
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
@@ -1704,90 +1695,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const expireReservation = (reservationId: string) => {
-    const target = publicEventReservations.find((r) => r.id === reservationId);
+    const target = publicEventReservationsRef.current.find((r) => r.id === reservationId);
+    if (!target || target.status !== 'pendiente_pago') {
+      return;
+    }
 
     setPublicEventReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId && res.status === 'pendiente_pago') {
-          // Devolver disponibilidad
-          setEventProposals((events) =>
-            events.map((ev) => {
-              if (ev.id === res.eventId) {
-                const restored = Math.min(ev.totalCapacity, ev.remainingCapacity + res.partySize);
-                return {
-                  ...ev,
-                  remainingCapacity: restored,
-                  status: ev.status === 'agotada' && restored > 0 ? 'publicada' : ev.status,
-                };
-              }
-              return ev;
-            })
-          );
-
-          if (res.userEmail) {
-            sendReservationExpiredEmail({
-              userEmail: res.userEmail,
-              userName: res.userName,
-              eventTitle: res.eventTitle,
-              venueName: res.venueName,
-              partySize: res.partySize,
-            });
-          }
-
-          return { ...res, status: 'expirada' as const };
-        }
-        return res;
-      })
+      prev.map((res) =>
+        res.id === reservationId && res.status === 'pendiente_pago'
+          ? { ...res, status: 'expirada' as const }
+          : res
+      )
     );
 
-    if (target && target.status === 'pendiente_pago') {
-      setNotifications((prev) => [
-        {
-          id: `notif-${Date.now()}-exp`,
-          title: '⌛ Reserva Expirada por Tiempo',
-          message: `Se agotaron los 8 minutos de tolerancia para abonar tu reserva en "${target.venueName}". Los lugares volvieron a la cartelera.`,
-          timestamp: 'Recién',
-          read: false,
-          type: 'system',
-        },
-        ...prev,
-      ]);
+    if (target.userEmail) {
+      sendReservationExpiredEmail({
+        userEmail: target.userEmail,
+        userName: target.userName,
+        eventTitle: target.eventTitle,
+        venueName: target.venueName,
+        partySize: target.partySize,
+      });
     }
+
+    setNotifications((prev) => [
+      {
+        id: `notif-${Date.now()}-exp`,
+        title: '⌛ Reserva Expirada por Tiempo',
+        message: `Se agotaron los 8 minutos de tolerancia para abonar tu reserva en "${target.venueName}".`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'system',
+      },
+      ...prev,
+    ]);
   };
 
   const rejectReservationPayment = (reservationId: string, reason: string) => {
+    const target = publicEventReservationsRef.current.find((r) => r.id === reservationId);
+    if (!target) return;
+
+    const previousStatus = target.status;
+
     setPublicEventReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          // Si el bar rechaza, se devuelve cupo si correspondía
-          setEventProposals((events) =>
-            events.map((ev) => {
-              if (ev.id === res.eventId) {
-                const restored = Math.min(ev.totalCapacity, ev.remainingCapacity + res.partySize);
-                return {
-                  ...ev,
-                  remainingCapacity: restored,
-                  status: ev.status === 'agotada' && restored > 0 ? 'publicada' : ev.status,
-                };
-              }
-              return ev;
-            })
-          );
-          return {
-            ...res,
-            status: 'cancelada' as const,
-            rejectionReason: reason,
-          };
-        }
-        return res;
-      })
+      prev.map((res) =>
+        res.id === reservationId
+          ? {
+              ...res,
+              status: 'cancelada' as const,
+              rejectionReason: reason,
+            }
+          : res
+      )
     );
+
+    if (previousStatus === 'confirmada') {
+      setEventProposals((events) =>
+        events.map((ev) =>
+          ev.id === target.eventId
+            ? restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus)
+            : ev
+        )
+      );
+    }
 
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
         title: '⚠️ Comprobante de Pago Rechazado',
-        message: `El bar no aceptó el comprobante: "${reason}". El cupo fue liberado.`,
+        message: `El bar no aceptó el comprobante: "${reason}".`,
         timestamp: 'Recién',
         read: false,
         type: 'system',
@@ -1989,34 +1965,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const cancelPublicEventReservation = (reservationId: string) => {
+    const target = publicEventReservationsRef.current.find((r) => r.id === reservationId);
+    if (!target) return;
+
+    const previousStatus = target.status;
+
     setPublicEventReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          // Devolver cupo al evento
-          setEventProposals((events) =>
-            events.map((ev) => {
-              if (ev.id === res.eventId) {
-                const restored = Math.min(ev.totalCapacity, ev.remainingCapacity + res.partySize);
-                return {
-                  ...ev,
-                  remainingCapacity: restored,
-                  status: ev.status === 'agotada' && restored > 0 ? ('publicada' as const) : ev.status,
-                };
-              }
-              return ev;
-            })
-          );
-          return { ...res, status: 'cancelada' as const };
-        }
-        return res;
-      })
+      prev.map((res) =>
+        res.id === reservationId ? { ...res, status: 'cancelada' as const } : res
+      )
     );
+
+    if (previousStatus === 'confirmada') {
+      setEventProposals((events) =>
+        events.map((ev) =>
+          ev.id === target.eventId
+            ? restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus)
+            : ev
+        )
+      );
+    }
 
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
         title: '❌ Reserva Cancelada',
-        message: 'Has cancelado tu reserva de mesa. El cupo ha quedado libre para otros espectadores.',
+        message: 'Has cancelado tu reserva de mesa.',
         timestamp: 'Recién',
         read: false,
         type: 'system',

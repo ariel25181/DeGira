@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Handshake,
   Star,
@@ -6,18 +6,18 @@ import {
   Calendar,
   Clock,
   MapPin,
-  Music,
-  Wine,
   MessageSquare,
-  Sparkles,
-  ArrowRight,
   ShieldCheck,
   Bell,
   RotateCcw,
   AlertTriangle,
+  Check,
+  Headphones,
+  ExternalLink,
+  Sliders,
+  Users,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
-import { LiveShowConfirmed } from '../types/index.ts';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
 
 interface AgreementsAndReviewsViewProps {
@@ -33,6 +33,8 @@ interface AgreementsAndReviewsViewProps {
   onViewMusician: (musicianId: string) => void;
 }
 
+type AgreementsSubTab = 'bar_bids' | 'pending_reviews' | 'upcoming' | 'applications';
+
 export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> = ({
   onOpenReviewModal,
   onViewVenue,
@@ -40,11 +42,11 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 }) => {
   const {
     role,
+    venues,
     currentMusician,
     currentVenue,
     liveShows,
     openCalls,
-    musicianAvailabilities,
     eventProposals,
     slotBids,
     sendMusicianProposalReminder,
@@ -52,8 +54,24 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     respondToSlotBid,
   } = useApp();
 
-  const [activeSubTab, setActiveSubTab] = useState<'pending_reviews' | 'upcoming' | 'applications'>('pending_reviews');
-  const [retractionFeedback, setRetractionFeedback] = useState<{ id: string; msg: string; success: boolean } | null>(null);
+  const [activeSubTab, setActiveSubTab] = useState<AgreementsSubTab>(() =>
+    role === 'bar' ? 'bar_bids' : 'pending_reviews'
+  );
+  const [retractionFeedback, setRetractionFeedback] = useState<{
+    id: string;
+    msg: string;
+    success: boolean;
+  } | null>(null);
+  const [counterInputId, setCounterInputId] = useState<string | null>(null);
+  const [counterAmount, setCounterAmount] = useState<number>(80000);
+  const [counterNote, setCounterNote] = useState<string>('');
+
+  // Keep sub-tabs strictly scoped to the active role (bar vs musico)
+  useEffect(() => {
+    setActiveSubTab(role === 'bar' ? 'bar_bids' : 'pending_reviews');
+  }, [role]);
+
+  const isBar = role === 'bar';
 
   // Past shows that require review (either musician reviewing venue or venue reviewing musician)
   const pastShowsNeedingReview = liveShows.filter((show) => {
@@ -65,17 +83,47 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     return show.isCompleted && (!show.venueReviewed || !show.musicianReviewed);
   });
 
-  // Upcoming confirmed shows
+  // Upcoming confirmed shows scoped by role
   const upcomingShows = liveShows.filter((show) => !show.isCompleted);
 
-  // DeGira: Propuestas enviadas por el músico a bares
-  const mySlotBids = slotBids.filter((b) => b.musicianId === currentMusician?.id);
+  // Bar-only: incoming slot bids for Bar's event proposals
+  const barVenueIds = new Set([
+    ...(currentVenue ? [currentVenue.id] : []),
+    ...venues.map((v) => v.id),
+  ]);
+  const incomingBarBids = slotBids.filter((bid) => {
+    if (bid.retracted) return false;
+    const ev = eventProposals.find((e) => e.id === bid.eventId);
+    if (!ev) return false;
+    return barVenueIds.size === 0 || barVenueIds.has(ev.venueId);
+  });
+  const pendingBarBidsCount = incomingBarBids.filter(
+    (b) => b.status === 'pendiente_bar' || b.status === 'contraoferta_musico'
+  ).length;
 
-  // Musician's submitted applications across all calls
+  // Bar-only: legacy open-call applications received by Bar venues
+  const incomingOpenCallApps = openCalls
+    .filter((call) => barVenueIds.size === 0 || barVenueIds.has(call.venueId))
+    .flatMap((call) =>
+      call.applications.map((app) => ({
+        ...app,
+        callVenue: call.venueName,
+        callDate: call.date,
+        callNeighborhood: call.venueNeighborhood,
+      }))
+    );
+
+  // Musician-only: bids & applications sent to bars
+  const mySlotBids = slotBids.filter((b) => b.musicianId === currentMusician?.id);
   const myApplications = openCalls.flatMap((call) =>
     call.applications
       .filter((app) => app.musicianId === currentMusician?.id)
-      .map((app) => ({ ...app, callVenue: call.venueName, callDate: call.date, callNeighborhood: call.venueNeighborhood }))
+      .map((app) => ({
+        ...app,
+        callVenue: call.venueName,
+        callDate: call.date,
+        callNeighborhood: call.venueNeighborhood,
+      }))
   );
 
   return (
@@ -85,67 +133,433 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         <div className="relative z-10 space-y-2">
           <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
             <Handshake className="w-3.5 h-3.5 mr-1" />
-            Gestión de Acuerdos & Feedback Bilateral
+            {isBar
+              ? 'Gestión de Postulaciones de Músicos & Sala'
+              : 'Gestión de Acuerdos & Feedback Bilateral'}
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-100 font-display">
-            Mis Fechas & Reputación Bilateral
+            {isBar
+              ? 'Postulaciones Recibidas & Fechas del Bar'
+              : 'Mis Fechas & Reputación Bilateral'}
           </h1>
           <p className="text-xs text-slate-400 max-w-md leading-relaxed">
-            Al estilo Airbnb, tras finalizar cada show, bares y músicos dejan calificaciones y comentarios honestos para nutrir la reputación mutua.
+            {isBar
+              ? 'Revisá las propuestas de bandas y solistas que se postularon a tus eventos, negociá el caché o contraofertá, y calificá tus shows finalizados.'
+              : 'Al estilo Airbnb, tras finalizar cada show, bares y músicos dejan calificaciones y comentarios honestos para nutrir la reputación mutua.'}
           </p>
         </div>
       </div>
 
-      {/* Sub tabs switcher */}
-      <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs">
-        <button
-          onClick={() => setActiveSubTab('pending_reviews')}
-          className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
-            activeSubTab === 'pending_reviews'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Star className="w-3.5 h-3.5 shrink-0" />
-          <span>Por Calificar</span>
-          {pastShowsNeedingReview.length > 0 && (
-            <span
-              className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
-                activeSubTab === 'pending_reviews' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500 text-slate-950'
-              }`}
-            >
-              {pastShowsNeedingReview.length}
-            </span>
+      {/* Role-strict sub-tabs switcher */}
+      {isBar ? (
+        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs">
+          <button
+            onClick={() => setActiveSubTab('bar_bids')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'bar_bids'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 shrink-0" />
+            <span>Postulaciones Recibidas</span>
+            {(pendingBarBidsCount > 0 || incomingBarBids.length > 0) && (
+              <span
+                className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+                  activeSubTab === 'bar_bids'
+                    ? 'bg-slate-950 text-amber-400'
+                    : 'bg-amber-500 text-slate-950'
+                }`}
+              >
+                {pendingBarBidsCount || incomingBarBids.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('upcoming')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'upcoming'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <span>Confirmadas</span>
+            <span className="text-[10px] opacity-80">({upcomingShows.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('pending_reviews')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'pending_reviews'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Star className="w-3.5 h-3.5 shrink-0" />
+            <span>Por Calificar</span>
+            {pastShowsNeedingReview.length > 0 && (
+              <span
+                className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+                  activeSubTab === 'pending_reviews'
+                    ? 'bg-slate-950 text-amber-400'
+                    : 'bg-amber-500 text-slate-950'
+                }`}
+              >
+                {pastShowsNeedingReview.length}
+              </span>
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs">
+          <button
+            onClick={() => setActiveSubTab('pending_reviews')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'pending_reviews'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Star className="w-3.5 h-3.5 shrink-0" />
+            <span>Por Calificar</span>
+            {pastShowsNeedingReview.length > 0 && (
+              <span
+                className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+                  activeSubTab === 'pending_reviews'
+                    ? 'bg-slate-950 text-amber-400'
+                    : 'bg-amber-500 text-slate-950'
+                }`}
+              >
+                {pastShowsNeedingReview.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('upcoming')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'upcoming'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <span>Confirmadas</span>
+            <span className="text-[10px] opacity-80">({upcomingShows.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('applications')}
+            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+              activeSubTab === 'applications'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+            <span>Mis Postulaciones</span>
+          </button>
+        </div>
+      )}
+
+      {/* BAR SUBTAB: Postulaciones Recibidas de Músicos */}
+      {isBar && activeSubTab === 'bar_bids' && (
+        <div className="space-y-4">
+          <div className="text-xs text-slate-400">
+            Propuestas recibidas de músicos y bandas para tocar en tus fechas creadas ({currentVenue?.name || 'Tu Bar'}):
+          </div>
+
+          {incomingBarBids.length === 0 && incomingOpenCallApps.length === 0 ? (
+            <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
+              <Users className="w-8 h-8 text-amber-400 mx-auto mb-1" />
+              <p className="text-slate-200 font-bold">Todavía no recibiste postulaciones de músicos.</p>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Creá o abrí una fecha en la pestaña "Mis Eventos" para que bandas y solistas puedan postularse a tus horarios.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {incomingBarBids.map((bid) => {
+                const event = eventProposals.find((e) => e.id === bid.eventId);
+                const slot = event?.slots.find((s) => s.id === bid.slotId);
+                const isCounteringThis = counterInputId === bid.id;
+
+                return (
+                  <div
+                    key={bid.id}
+                    className={`p-4 sm:p-5 rounded-2xl border text-xs space-y-3 shadow-md ${
+                      bid.status === 'aceptada'
+                        ? 'bg-emerald-950/20 border-emerald-500/40'
+                        : bid.status === 'rechazada'
+                        ? 'bg-slate-900/60 border-slate-800 opacity-70'
+                        : 'bg-slate-900/90 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                      <div>
+                        <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wide">
+                          {event?.title || 'Evento del Bar'} • {event?.venueName}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <h4 className="font-extrabold text-sm text-slate-100">
+                            {bid.musicianName}
+                          </h4>
+                          <span className="text-[11px] text-slate-400">
+                            ({bid.musiciansCount} {bid.musiciansCount === 1 ? 'músico' : 'músicos'} en escenario)
+                          </span>
+                          <button
+                            onClick={() => onViewMusician(bid.musicianId)}
+                            className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold underline"
+                          >
+                            Ver perfil del Músico
+                          </button>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2">
+                          <span>Fecha: <strong className="text-slate-200">{formatDateBA(event?.date || '')}</strong></span>
+                          {slot && (
+                            <span>• Horario: <strong className="text-amber-300">{slot.startTime} a {slot.endTime} hs</strong></span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="font-extrabold text-emerald-400 text-sm block">
+                          {formatARS(bid.proposedCachetARS)}
+                        </span>
+                        <span
+                          className={`mt-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] inline-block uppercase border ${
+                            bid.status === 'aceptada'
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                              : bid.status === 'contraoferta_bar'
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                              : bid.status === 'contraoferta_musico'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : bid.status === 'rechazada'
+                              ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                              : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                          }`}
+                        >
+                          {bid.status === 'aceptada'
+                            ? 'Aceptada'
+                            : bid.status === 'contraoferta_bar'
+                            ? 'Esperando al Músico'
+                            : bid.status === 'contraoferta_musico'
+                            ? 'Contraoferta del Músico'
+                            : bid.status === 'rechazada'
+                            ? 'Rechazada'
+                            : 'Pendiente de Revisión'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1 text-[11px]">
+                      <div className="text-slate-400">
+                        Equipamiento del músico: <strong className="text-slate-200">{bid.equipmentProvided}</strong>
+                      </div>
+                      <div className="text-slate-400">
+                        Requerimiento para la sala: <strong className="text-slate-200">{bid.equipmentNeeded}</strong>
+                      </div>
+                    </div>
+
+                    {(bid.musicLinks?.spotifyUrl || bid.musicLinks?.youtubeUrl || bid.musicLinks?.bandcampUrl) && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+                          <Headphones className="w-3 h-3 text-emerald-400" />
+                          Escuchar demo:
+                        </span>
+                        {bid.musicLinks?.spotifyUrl && (
+                          <a
+                            href={bid.musicLinks.spotifyUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                          >
+                            <span>Spotify</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                        {bid.musicLinks?.youtubeUrl && (
+                          <a
+                            href={bid.musicLinks.youtubeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                          >
+                            <span>YouTube</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                        {bid.musicLinks?.bandcampUrl && (
+                          <a
+                            href={bid.musicLinks.bandcampUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                          >
+                            <span>Bandcamp</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {bid.inputList && bid.inputList.length > 0 && (
+                      <div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <Sliders className="w-3 h-3 text-amber-400" />
+                          <span>Input List ({bid.inputList.length} canales):</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {bid.inputList.map((ch, idx) => (
+                            <span
+                              key={idx}
+                              className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 text-[10px] text-slate-300 rounded font-mono"
+                            >
+                              Ch{ch.channel}: {ch.instrument} ({ch.micOrDI})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {bid.history.length > 0 && (
+                      <div className="space-y-1 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-[11px]">
+                        {bid.history.map((h) => (
+                          <div key={h.id} className="text-slate-300">
+                            <strong className="text-amber-400">{h.actorName}:</strong> {h.note} ({formatARS(h.cachetARS)})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {bid.status !== 'aceptada' && bid.status !== 'rechazada' && (
+                      <div className="space-y-2 pt-2 border-t border-slate-800">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() =>
+                              respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')
+                            }
+                            className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            <span>Aceptar Propuesta</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setCounterAmount(bid.proposedCachetARS);
+                              setCounterNote('');
+                              setCounterInputId(isCounteringThis ? null : bid.id);
+                            }}
+                            className="py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
+                          >
+                            Contraproponer
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              respondToSlotBid(bid.id, 'reject', undefined, 'Rechazada por el anfitrión.')
+                            }
+                            className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold rounded-lg text-xs"
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+
+                        {isCounteringThis && (
+                          <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                              <input
+                                type="number"
+                                step={5000}
+                                value={counterAmount}
+                                onChange={(e) => setCounterAmount(Number(e.target.value))}
+                                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
+                              />
+                            </div>
+                            <input
+                              type="text"
+                              placeholder="Nota de contrapropuesta para el músico..."
+                              value={counterNote}
+                              onChange={(e) => setCounterNote(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100"
+                            />
+                            <button
+                              onClick={() => {
+                                respondToSlotBid(
+                                  bid.id,
+                                  'counter',
+                                  counterAmount,
+                                  counterNote || 'Contraoferta enviada por el bar.'
+                                );
+                                setCounterInputId(null);
+                              }}
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs"
+                            >
+                              Enviar Contraoferta al Músico
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {incomingOpenCallApps.map((app) => (
+                <div
+                  key={app.id}
+                  className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-bold text-slate-100 text-sm">{app.musicianName}</div>
+                      <div className="text-slate-400">
+                        Para {app.callVenue} • Fecha: {formatDateBA(app.callDate)} ({app.callNeighborhood})
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
+                        app.status === 'aceptada'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : app.status === 'rechazada'
+                          ? 'bg-rose-500/20 text-rose-400'
+                          : 'bg-amber-500/20 text-amber-400'
+                      }`}
+                    >
+                      {app.status === 'aceptada'
+                        ? 'Aceptada & Confirmada'
+                        : app.status === 'rechazada'
+                        ? 'Rechazada'
+                        : 'Pendiente de Revisión'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 italic">
+                    "{app.note}"
+                  </div>
+
+                  <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <span>Caché solicitado: <strong className="text-emerald-400">{formatARS(app.proposedCachetARS)}</strong></span>
+                    <button
+                      onClick={() => onViewMusician(app.musicianId)}
+                      className="text-amber-400 hover:text-amber-300 font-semibold underline"
+                    >
+                      Ver perfil del Músico
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </button>
+        </div>
+      )}
 
-        <button
-          onClick={() => setActiveSubTab('upcoming')}
-          className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
-            activeSubTab === 'upcoming'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Calendar className="w-3.5 h-3.5 shrink-0" />
-          <span>Confirmadas</span>
-          <span className="text-[10px] text-slate-400">({upcomingShows.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('applications')}
-          className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
-            activeSubTab === 'applications'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-          <span>Postulaciones</span>
-        </button>
-      </div>
-
-      {/* SubTab 1: Calificaciones Pendientes Post-Show (Airbnb-style) */}
+      {/* SubTab: Calificaciones Pendientes Post-Show (Airbnb-style) */}
       {activeSubTab === 'pending_reviews' && (
         <div className="space-y-4">
           <div className="bg-amber-950/20 border border-amber-900/40 rounded-2xl p-4 flex items-start space-x-3 text-xs text-amber-200/90 leading-relaxed">
@@ -239,14 +653,16 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         </div>
       )}
 
-      {/* SubTab 2: Próximas Fechas Confirmadas */}
+      {/* SubTab: Próximas Fechas Confirmadas */}
       {activeSubTab === 'upcoming' && (
         <div className="space-y-4">
           {upcomingShows.length === 0 ? (
             <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
               <p className="text-slate-300 font-medium">No tenés fechas próximas acordadas.</p>
               <p className="text-xs text-slate-500">
-                Revisá las convocatorias abiertas de bares o publicá tu disponibilidad.
+                {isBar
+                  ? 'Aceptá una postulación en "Postulaciones Recibidas" o publicá una nueva fecha en "Mis Eventos".'
+                  : 'Revisá las convocatorias abiertas de bares o publicá tu disponibilidad.'}
               </p>
             </div>
           ) : (
@@ -291,12 +707,21 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 
                 <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
                   <span>Géneros: {show.musicianGenres.join(', ')}</span>
-                  <button
-                    onClick={() => onViewVenue(show.venueId)}
-                    className="text-amber-400 hover:text-amber-300 font-semibold underline"
-                  >
-                    Ver info del Bar
-                  </button>
+                  {isBar ? (
+                    <button
+                      onClick={() => onViewMusician(show.musicianId)}
+                      className="text-amber-400 hover:text-amber-300 font-semibold underline"
+                    >
+                      Ver perfil del Músico
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onViewVenue(show.venueId)}
+                      className="text-amber-400 hover:text-amber-300 font-semibold underline"
+                    >
+                      Ver info del Bar
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -304,8 +729,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         </div>
       )}
 
-      {/* SubTab 3: Propuestas y Postulaciones Enviadas a Bares */}
-      {activeSubTab === 'applications' && (
+      {/* MUSICIAN-ONLY SUBTAB: Propuestas y Postulaciones Enviadas a Bares */}
+      {!isBar && activeSubTab === 'applications' && (
         <div className="space-y-4">
           <div className="text-xs text-slate-400">
             Seguimiento de las propuestas de fecha que enviaste a bares de Buenos Aires (recordatorios, retracciones y contraofertas):
