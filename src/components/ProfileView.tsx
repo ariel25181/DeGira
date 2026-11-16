@@ -103,6 +103,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   // Musician / Venue tabs
   const [activeTab, setActiveTab] = useState<'reviews' | 'backline' | 'comprobantes' | 'borderaux' | 'links_musica'>('reviews');
+  const [paymentConfirmBanner, setPaymentConfirmBanner] = useState<string | null>(null);
 
   // Selected genres & hoods for spectator
   const [selectedGenres, setSelectedGenres] = useState<MusicGenre[]>(
@@ -128,6 +129,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setMusicianInputList(currentMusician.defaultInputList || []);
     }
   }, [currentMusician]);
+
+  // Guard activeTab when switching between bar/musico or viewing another profile
+  useEffect(() => {
+    const viewingAsVenue = viewingTarget ? viewingTarget.type === 'venue' : role === 'bar';
+    if (viewingTarget && (activeTab === 'comprobantes' || activeTab === 'borderaux' || activeTab === 'links_musica')) {
+      setActiveTab('reviews');
+      return;
+    }
+    if (viewingAsVenue && activeTab === 'links_musica') {
+      setActiveTab('reviews');
+    } else if (!viewingAsVenue && (activeTab === 'comprobantes' || activeTab === 'borderaux')) {
+      setActiveTab('reviews');
+    }
+  }, [role, viewingTarget, activeTab]);
 
   // Current time state for 8-min countdown ticker
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
@@ -1025,8 +1040,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     isVenue = role === 'bar';
   }
 
-  // Pending payment receipts to confirm by the bar
+  // Pending & recently confirmed payment receipts for the bar
   const pendingReceipts = publicEventReservations.filter((r) => r.status === 'comprobante_subido');
+  const confirmedReceipts = publicEventReservations.filter((r) => r.status === 'confirmada');
 
   return (
     <div className="space-y-5 pb-24 animate-in fade-in duration-200">
@@ -1208,14 +1224,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* TAB: COMPROBANTES DE CLIENTES A CONFIRMAR POR EL BAR */}
       {activeTab === 'comprobantes' && isVenue && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Comprobantes de Pago Subidos por el Público ({pendingReceipts.length})
             </h3>
             <span className="text-xs text-amber-400 font-semibold">
-              Al confirmar, se descuenta la capacidad y se emite el QR por email
+              Al confirmar, se descuenta el cupo de sala y se emite el QR por email
             </span>
           </div>
+
+          {paymentConfirmBanner && (
+            <div className="p-3.5 bg-emerald-950/70 border border-emerald-500/40 rounded-2xl text-xs text-emerald-200 font-semibold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{paymentConfirmBanner}</span>
+              </div>
+              <button
+                onClick={() => setPaymentConfirmBanner(null)}
+                className="text-[11px] underline text-emerald-300 font-bold shrink-0"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
 
           {pendingReceipts.length === 0 ? (
             <div className="p-8 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-2">
@@ -1229,104 +1260,167 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingReceipts.map((res) => (
-                <div
-                  key={res.id}
-                  className="p-4 sm:p-5 bg-slate-900 border border-amber-500/40 rounded-2xl space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
-                    <div>
-                      <h4 className="text-base font-bold text-slate-100">{res.eventTitle}</h4>
-                      <p className="text-xs text-slate-400">
-                        Cliente: <strong>{res.userName}</strong> ({res.userEmail}) • {res.partySize} personas
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block uppercase font-semibold">Código del Evento</span>
-                      <span className="font-mono text-sm font-black text-amber-400">{res.eventCode}</span>
-                    </div>
-                  </div>
+              {pendingReceipts.map((res) => {
+                const targetEvent = eventProposals.find((ev) => ev.id === res.eventId);
+                const projectedRemaining = targetEvent
+                  ? Math.max(0, targetEvent.remainingCapacity - res.partySize)
+                  : null;
 
-                  {res.receiptImage && (
-                    <div className="p-2 bg-slate-950 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
-                      <img
-                        src={res.receiptImage}
-                        alt="Comprobante subido"
-                        className="w-36 h-36 object-contain rounded-lg border border-slate-700 bg-black/40"
-                      />
-                      <div className="text-xs space-y-1.5 flex-1 min-w-0">
-                        <div className="font-bold text-slate-200">Lectura Automática Gemini OCR:</div>
-                        <p className="text-[11px] text-slate-300 bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                          {res.receiptOcrNotes || 'Comprobante verificado con código correspondiente.'}
+                return (
+                  <div
+                    key={res.id}
+                    className="p-4 sm:p-5 bg-slate-900 border border-amber-500/40 rounded-2xl space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                      <div>
+                        <h4 className="text-base font-bold text-slate-100">{res.eventTitle}</h4>
+                        <p className="text-xs text-slate-400">
+                          Cliente: <strong>{res.userName}</strong> ({res.userEmail}) • <strong className="text-amber-300">{res.partySize} {res.partySize === 1 ? 'persona' : 'personas'}</strong>
                         </p>
-                        <div className="text-amber-300 font-bold">
-                          Monto a acreditar: {formatARS(res.totalARS)}
-                        </div>
+                        {targetEvent && (
+                          <p className="text-[11px] text-slate-300 mt-1">
+                            Cupo actual: <strong className="text-emerald-400">{targetEvent.remainingCapacity}</strong> / {targetEvent.totalCapacity} lugares
+                            {projectedRemaining !== null && (
+                              <span className="text-slate-400">
+                                {' '}→ Luego de confirmar: <strong className={projectedRemaining === 0 ? 'text-rose-400' : 'text-amber-300'}>{projectedRemaining}</strong> / {targetEvent.totalCapacity}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block uppercase font-semibold">Código del Evento</span>
+                        <span className="font-mono text-sm font-black text-amber-400">{res.eventCode}</span>
                       </div>
                     </div>
-                  )}
 
-                  <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-end gap-2">
-                    {rejectingResId === res.id ? (
-                      <div className="w-full bg-slate-950 p-3 rounded-xl border border-red-500/40 space-y-2 animate-in fade-in">
-                        <label className="text-[11px] font-bold text-red-300 block">
-                          Motivo del rechazo de transferencia:
-                        </label>
-                        <input
-                          type="text"
-                          value={rejectReason}
-                          onChange={(e) => setRejectReason(e.target.value)}
-                          placeholder="Ej: Comprobante ilegible, alias erróneo o importe incompleto"
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-400"
+                    {res.receiptImage && (
+                      <div className="p-2 bg-slate-950 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
+                        <img
+                          src={res.receiptImage}
+                          alt="Comprobante subido"
+                          className="w-36 h-36 object-contain rounded-lg border border-slate-700 bg-black/40"
                         />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setRejectingResId(null);
-                              setRejectReason('');
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => {
-                              rejectReservationPayment(
-                                res.id,
-                                rejectReason.trim() || 'Comprobante no coincide con la transferencia esperada'
-                              );
-                              setRejectingResId(null);
-                              setRejectReason('');
-                            }}
-                            className="px-3.5 py-1.5 rounded-lg bg-red-500 hover:bg-red-400 text-white font-bold text-xs"
-                          >
-                            Confirmar Rechazo
-                          </button>
+                        <div className="text-xs space-y-1.5 flex-1 min-w-0">
+                          <div className="font-bold text-slate-200">Lectura Automática Gemini OCR:</div>
+                          <p className="text-[11px] text-slate-300 bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                            {res.receiptOcrNotes || 'Comprobante verificado con código correspondiente.'}
+                          </p>
+                          <div className="text-amber-300 font-bold">
+                            Monto a acreditar: {formatARS(res.totalARS)}
+                          </div>
                         </div>
                       </div>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => {
-                            setRejectingResId(res.id);
-                            setRejectReason('');
-                          }}
-                          className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold transition-all"
-                        >
-                          Rechazar Comprobante
-                        </button>
-                        <button
-                          onClick={() => confirmReservationPayment(res.id)}
-                          className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center gap-1.5"
-                        >
-                          <Check className="w-4 h-4 stroke-[3]" />
-                          <span>Confirmar Pago & Enviar Entrada QR</span>
-                        </button>
-                      </>
                     )}
+
+                    <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-end gap-2">
+                      {rejectingResId === res.id ? (
+                        <div className="w-full bg-slate-950 p-3 rounded-xl border border-red-500/40 space-y-2 animate-in fade-in">
+                          <label className="text-[11px] font-bold text-red-300 block">
+                            Motivo del rechazo de transferencia:
+                          </label>
+                          <input
+                            type="text"
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            placeholder="Ej: Comprobante ilegible, alias erróneo o importe incompleto"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-400"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setRejectingResId(null);
+                                setRejectReason('');
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => {
+                                rejectReservationPayment(
+                                  res.id,
+                                  rejectReason.trim() || 'Comprobante no coincide con la transferencia esperada'
+                                );
+                                setRejectingResId(null);
+                                setRejectReason('');
+                              }}
+                              className="px-3.5 py-1.5 rounded-lg bg-red-500 hover:bg-red-400 text-white font-bold text-xs"
+                            >
+                              Confirmar Rechazo
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setRejectingResId(res.id);
+                              setRejectReason('');
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold transition-all"
+                          >
+                            Rechazar Comprobante
+                          </button>
+                          <button
+                            onClick={() => {
+                              confirmReservationPayment(res.id);
+                              if (targetEvent) {
+                                const nextRemaining = Math.max(0, targetEvent.remainingCapacity - res.partySize);
+                                setPaymentConfirmBanner(
+                                  `Pago confirmado de ${res.userName} (-${res.partySize} ${res.partySize === 1 ? 'lugar' : 'lugares'}). Cupo actualizado en "${res.eventTitle}": quedan ${nextRemaining} de ${targetEvent.totalCapacity} lugares.`
+                                );
+                              } else {
+                                setPaymentConfirmBanner(
+                                  `Pago confirmado de ${res.userName} (${res.partySize} ${res.partySize === 1 ? 'lugar' : 'lugares'}). Pase QR emitido.`
+                                );
+                              }
+                            }}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center gap-1.5"
+                          >
+                            <Check className="w-4 h-4 stroke-[3]" />
+                            <span>Confirmar Pago & Enviar Entrada QR</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+
+          {confirmedReceipts.length > 0 && (
+            <div className="pt-2 space-y-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Pagos Confirmados Recientemente ({confirmedReceipts.length})
+              </h4>
+              <div className="space-y-2">
+                {confirmedReceipts.slice(0, 5).map((res) => {
+                  const ev = eventProposals.find((p) => p.id === res.eventId);
+                  return (
+                    <div
+                      key={res.id}
+                      className="p-3 bg-slate-900/70 border border-emerald-500/20 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-200">{res.userName}</span>
+                        <span className="text-slate-400"> • {res.eventTitle} ({res.partySize} pers.)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {ev && (
+                          <span className="text-[11px] text-amber-300 font-semibold">
+                            Cupo restante: {ev.remainingCapacity}/{ev.totalCapacity}
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold text-[10px]">
+                          Confirmada
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -1510,7 +1604,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             {(() => {
-              const venueEvents = eventProposals.filter((p) => p.venueId === (venueProfile?.id || 'bar-1'));
+              const targetVenueId = venueProfile?.id || 'venue-1';
+              const venueEvents = eventProposals.filter(
+                (p) => p.venueId === targetVenueId || venues.some((v) => v.id === p.venueId)
+              );
               const totalGross = venueEvents.reduce((acc, p) => {
                 const confirmed = publicEventReservations.filter(
                   (r) => r.eventId === p.id && r.status === 'confirmada'
@@ -1546,7 +1643,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           {/* List of events */}
           <div className="space-y-3">
             {eventProposals
-              .filter((p) => p.venueId === (venueProfile?.id || 'bar-1'))
+              .filter((p) => p.venueId === (venueProfile?.id || 'venue-1') || venues.some((v) => v.id === p.venueId))
               .map((p) => {
                 const confirmed = publicEventReservations.filter(
                   (r) => r.eventId === p.id && r.status === 'confirmada'
@@ -1581,7 +1678,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                      <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block">Cupo Disponible</span>
+                        <strong className={`font-bold ${p.remainingCapacity === 0 ? 'text-rose-400' : 'text-amber-300'}`}>
+                          {p.remainingCapacity} / {p.totalCapacity} pers.
+                        </strong>
+                      </div>
                       <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
                         <span className="text-[10px] text-slate-400 block">Público Confirmado</span>
                         <strong className="text-slate-100 font-bold">{attendees} personas</strong>
