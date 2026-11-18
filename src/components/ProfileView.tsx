@@ -33,10 +33,12 @@ import {
   Sliders,
   Gift,
   Bell,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
-import { MusicGenre, NeighborhoodBA, PublicEventReservation, MusicianInputChannel, MusicianMusicLinks } from '../types/index.ts';
+import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
+import { MusicGenre, NeighborhoodBA, PublicEventReservation, MusicianInputChannel, MusicianMusicLinks, EventProposal } from '../types/index.ts';
 import { UploadReceiptModal } from './modals/UploadReceiptModal.tsx';
 import { BarDoorCheckInModal } from './modals/BarDoorCheckInModal.tsx';
 
@@ -44,6 +46,7 @@ interface ProfileViewProps {
   viewingTarget?: { type: 'musician' | 'venue'; id: string } | null;
   onClearTarget?: () => void;
   onOpenReviewModal?: (params: any) => void;
+  onOpenReview360?: (event: EventProposal) => void;
   onSelectTab?: (tab: string) => void;
   onSignOut?: () => void;
 }
@@ -52,6 +55,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   viewingTarget,
   onClearTarget,
   onOpenReviewModal,
+  onOpenReview360,
   onSelectTab,
   onSignOut,
 }) => {
@@ -71,6 +75,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     reservations,
     publicEventReservations,
     eventProposals,
+    liveShows,
     confirmReservationPayment,
     rejectReservationPayment,
     liquidateMusicianCachet,
@@ -757,85 +762,141 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* TAB PENDIENTES DE CALIFICAR (RESEÑAS DEL PÚBLICO TRAS 1 HORA O SHOW) */}
-        {spectatorTab === 'pendientes_calificar' && (
-          <div className="space-y-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-2 shadow-xl">
-              <div className="flex items-center gap-2">
-                <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
-                <h3 className="text-base font-bold text-slate-100 font-display">
-                  Eventos y Bares Pendientes de Calificar
-                </h3>
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Una hora después de finalizado cada evento, se habilita la calificación 360°. Calificá la experiencia en el bar y la actuación de los músicos para desbloquear cupones de descuento.
-              </p>
-            </div>
+        {/* TAB PENDIENTES DE CALIFICAR (RESEÑAS DEL PÚBLICO ESTRICTAMENTE 2 HORAS DESPUÉS DE FINALIZADO EL EVENTO) */}
+        {spectatorTab === 'pendientes_calificar' && (() => {
+          const pendingSummary = getPendingReviewsForRole({
+            role: 'espectador',
+            activePublicUserId,
+            eventProposals,
+            liveShows,
+            publicEventReservations,
+            reviews360,
+            spectatorReservations: reservations,
+          });
+          const pendingItems = pendingSummary.allEndedPending;
 
-            {publicEventReservations.filter((r) => r.status === 'confirmada').length === 0 && reservations.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
-                <div className="text-3xl">⭐</div>
-                <h4 className="text-sm font-bold text-slate-200">No tenés eventos pendientes de calificación</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Aparecerán aquí los shows a los que asistas para dejar tu opinión transparente del local y de los artistas.
+          return (
+            <div className="space-y-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-2 shadow-xl">
+                <div className="flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                  <h3 className="text-base font-bold text-slate-100 font-display">
+                    Eventos y Bares Pendientes de Calificar
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Las calificaciones 360° solo están disponibles <strong className="text-amber-300">2 horas después de finalizado</strong> cada evento. Calificá la experiencia en el bar y la actuación de los músicos para desbloquear cupones de descuento.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {publicEventReservations
-                  .filter((r) => r.status === 'confirmada')
-                  .map((res) => (
-                    <div
-                      key={res.id}
-                      className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-3 shadow-md"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className="text-[10px] font-bold uppercase text-amber-400 tracking-wider">
-                            Pase Confirmado • Listo para reseña
-                          </span>
-                          <h4 className="text-base font-bold text-slate-100 mt-0.5">{res.eventTitle}</h4>
-                          <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                            <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                            <span>{res.venueName} • {res.venueNeighborhood} ({formatDateBA(res.eventDate)})</span>
+
+              {pendingItems.length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+                  <div className="text-3xl">⭐</div>
+                  <h4 className="text-sm font-bold text-slate-200">No tenés eventos pendientes de calificación</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Cuando finalice un evento con tu entrada confirmada y hayan pasado 2 horas desde el cierre, aparecerá aquí para calificar al bar y a los músicos.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingItems.map((item) => {
+                    const isUnlocked = item.availability.isAvailable;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={`bg-slate-900/90 border rounded-2xl p-4 sm:p-5 space-y-3 shadow-md ${
+                          isUnlocked ? 'border-amber-500/40' : 'border-slate-800 opacity-90'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${
+                                isUnlocked ? 'text-emerald-400' : 'text-cyan-300'
+                              }`}
+                            >
+                              {!isUnlocked && <Lock className="w-3 h-3" />}
+                              {isUnlocked
+                                ? 'Show finalizado (+2 hs) • Listo para reseña'
+                                : item.availability.waitLabel}
+                            </span>
+                            <h4 className="text-base font-bold text-slate-100 mt-0.5">{item.title}</h4>
+                            <div className="text-xs text-slate-400 flex flex-wrap items-center gap-1.5 mt-0.5">
+                              <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                              <span>
+                                {item.venueName} • {item.venueNeighborhood} ({formatDateBA(item.date)} • {item.startTime} a {item.endTime} hs)
+                              </span>
+                            </div>
+                            {item.musicianNames.length > 0 && (
+                              <div className="text-[11px] text-slate-300 mt-1">
+                                Artistas: <strong>{item.musicianNames.join(', ')}</strong>
+                              </div>
+                            )}
                           </div>
+
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border shrink-0 ${
+                              isUnlocked
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                            }`}
+                          >
+                            {isUnlocked ? 'Pendiente' : 'En espera (2hs)'}
+                          </span>
                         </div>
 
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                          Pendiente
-                        </span>
-                      </div>
+                        <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] text-slate-400">
+                            {isUnlocked
+                              ? `A calificar: ${item.targetSummary}`
+                              : `Habilita 2 hs tras el cierre (${item.availability.unlockTimeText})`}
+                          </span>
 
-                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400">
-                          Tu reseña bilateral premia a los mejores bares de Buenos Aires.
-                        </span>
-
-                        <button
-                          onClick={() => {
-                            if (onOpenReviewModal) {
-                              onOpenReviewModal({
-                                targetType: 'venue',
-                                targetId: res.venueId,
-                                targetName: res.venueName,
-                                showDate: res.eventDate,
-                                showVenueName: res.venueName,
-                                showIdToComplete: res.eventId,
-                              });
-                            }
-                          }}
-                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md"
-                        >
-                          <Star className="w-3.5 h-3.5 fill-slate-950" />
-                          <span>Calificar Bar & Músicos</span>
-                        </button>
+                          {isUnlocked ? (
+                            <button
+                              onClick={() => {
+                                if (item.eventProposal && onOpenReview360) {
+                                  onOpenReview360(item.eventProposal);
+                                } else if (onOpenReviewModal) {
+                                  onOpenReviewModal(
+                                    item.reviewModalParams || {
+                                      targetType: 'venue',
+                                      targetId: item.venueId,
+                                      targetName: item.venueName,
+                                      showDate: item.date,
+                                      showVenueName: item.venueName,
+                                      showIdToComplete: item.eventId,
+                                      showStartTime: item.startTime,
+                                      showEndTime: item.endTime,
+                                    }
+                                  );
+                                }
+                              }}
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md"
+                            >
+                              <Star className="w-3.5 h-3.5 fill-slate-950" />
+                              <span>Calificar Bar & Músicos</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-not-allowed"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>{item.availability.waitLabel}</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 2: MIS PREFERENCIAS & DATOS PERSONALES */}
         {spectatorTab === 'preferencias' && (

@@ -231,13 +231,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleGuestOrDemoAccess = () => {
     const demoName = selectedRole === 'bar' ? 'Bar Test 1' : selectedRole === 'musico' ? 'Músico Test 1' : 'Usuario Público 1';
     const demoEmail = selectedRole === 'bar' ? 'bar1@degira.com.ar' : selectedRole === 'musico' ? 'musico1@degira.com.ar' : 'publico1@degira.com.ar';
-    if (setUserDisplayName) setUserDisplayName(demoName);
-    saveActiveSession({
-      role: selectedRole,
-      userName: demoName,
-      userEmail: demoEmail,
-      remember24h,
-    });
+    const demoAccount = findTestAccountByEmail(demoEmail);
+    if (demoAccount && loginAsAccount) {
+      loginAsAccount(demoAccount);
+    } else {
+      if (setUserDisplayName) setUserDisplayName(demoName);
+      saveActiveSession({
+        role: selectedRole,
+        userName: demoName,
+        userEmail: demoEmail,
+        remember24h,
+      });
+    }
 
     setTourIndex(0);
     setStep('tour');
