@@ -16,6 +16,7 @@ import { DirectOfferModal } from './components/modals/DirectOfferModal.tsx';
 import { ShowDetailModal } from './components/modals/ShowDetailModal.tsx';
 import { ReviewModal } from './components/modals/ReviewModal.tsx';
 import { Review360Modal } from './components/modals/Review360Modal.tsx';
+import { PendingReviewsReminderModal } from './components/modals/PendingReviewsReminderModal.tsx';
 import { NotificationsDrawer } from './components/modals/NotificationsDrawer.tsx';
 import { ShareModal } from './components/modals/ShareModal.tsx';
 import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
@@ -23,22 +24,30 @@ import { PWAInstallBanner, PWAInstallGuideModal } from './components/PWAInstallB
 import { SessionProvider, useSession } from './context/SessionContext.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole, EventProposal } from './types/index.ts';
-import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench, LogOut, Star } from 'lucide-react';
+import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench, LogOut, Star, Clock } from 'lucide-react';
 import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 import { getActiveSession } from './lib/degiraSession.ts';
+import { getPendingReviewsForRole, PendingReviewItem } from './utils/reviewEligibility.ts';
 
 function MainApp() {
   const {
     role,
     setRole,
+    activeMusicianId,
+    activeVenueId,
+    activePublicUserId,
     currentMusician,
     currentVenue,
     userDisplayName,
     setUserDisplayName,
     logout,
     eventProposals,
+    liveShows,
+    publicEventReservations,
+    reservations,
     reviews360,
+    loginTriggerCount,
   } = useApp();
   const { signOut } = useSession();
 
@@ -108,6 +117,8 @@ function MainApp() {
     showDate: string;
     showVenueName: string;
     showIdToComplete?: string;
+    showStartTime?: string;
+    showEndTime?: string;
   }>({
     targetType: 'venue',
     targetId: '',
@@ -116,18 +127,43 @@ function MainApp() {
     showVenueName: '',
   });
 
-  // Review 360 Post-Event State (Req 7: rating bilateral post evento)
+  // Review 360 Post-Event State (habilitado estrictamente 2hs post-evento)
   const [isReview360Open, setIsReview360Open] = useState(false);
   const [review360Event, setReview360Event] = useState<EventProposal | null>(null);
 
-  // Check if there is an ended event proposal needing review from this user
-  const endedEventNeedingReview = eventProposals.find((ev) => {
-    // If not reviewed yet by this user
-    const alreadyReviewed = reviews360.some(
-      (r) => r.eventId === ev.id && r.fromRole === role
-    );
-    return !alreadyReviewed;
-  }) || eventProposals[0] || null;
+  const pendingReviewsSummary = getPendingReviewsForRole({
+    role,
+    activeVenueId,
+    activeMusicianId,
+    activePublicUserId,
+    eventProposals,
+    liveShows,
+    publicEventReservations,
+    reviews360,
+    spectatorReservations: reservations,
+  });
+
+  const primaryAvailableReview = pendingReviewsSummary.availableNow[0] || null;
+  const primaryWaitingReview = pendingReviewsSummary.waitingWindow[0] || null;
+
+  // Recordatorio automático en pantalla al loguearse con calificaciones pendientes detalladas
+  const [isPendingReviewsReminderOpen, setIsPendingReviewsReminderOpen] = useState(false);
+  const [pendingLoginReminderCheck, setPendingLoginReminderCheck] = useState<boolean>(() => !isOnboardingOpen);
+
+  useEffect(() => {
+    if (!isOnboardingOpen && loginTriggerCount > 0) {
+      setPendingLoginReminderCheck(true);
+    }
+  }, [loginTriggerCount, isOnboardingOpen]);
+
+  useEffect(() => {
+    if (!isOnboardingOpen && pendingLoginReminderCheck) {
+      setPendingLoginReminderCheck(false);
+      if (pendingReviewsSummary.allEndedPending.length > 0) {
+        setIsPendingReviewsReminderOpen(true);
+      }
+    }
+  }, [isOnboardingOpen, pendingLoginReminderCheck, pendingReviewsSummary.allEndedPending.length]);
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -153,8 +189,28 @@ function MainApp() {
   };
 
   const handleOpenReviewModal = (params: typeof reviewModalParams) => {
+    setIsIconMenuOpen(false);
     setReviewModalParams(params);
     setIsReviewModalOpen(true);
+  };
+
+  const handleOpenReview360 = (event: EventProposal) => {
+    setIsIconMenuOpen(false);
+    setReview360Event(event);
+    setIsReview360Open(true);
+  };
+
+  const handleRatePendingItem = (item: PendingReviewItem) => {
+    if (!item.availability.isAvailable) return;
+    setIsPendingReviewsReminderOpen(false);
+    setIsIconMenuOpen(false);
+    if (item.eventProposal) {
+      setReview360Event(item.eventProposal);
+      setIsReview360Open(true);
+    } else if (item.reviewModalParams) {
+      setReviewModalParams(item.reviewModalParams);
+      setIsReviewModalOpen(true);
+    }
   };
 
   const handleViewVenueProfile = (venueId: string) => {
@@ -172,6 +228,7 @@ function MainApp() {
   };
 
   const handleOnboardingComplete = (chosenRole: UserRole) => {
+    const wasTourOnly = isTourOnly;
     setRole(chosenRole);
     setIsOnboardingOpen(false);
     setIsTourOnly(false);
@@ -179,6 +236,9 @@ function MainApp() {
     setActiveTab(defaultTab);
     // Open the icon menu after the tour so the user sees the role options!
     setIsIconMenuOpen(true);
+    if (!wasTourOnly) {
+      setPendingLoginReminderCheck(true);
+    }
   };
 
   const handleRestartTour = () => {
@@ -192,6 +252,7 @@ function MainApp() {
   };
 
   const handleSignOut = async () => {
+    setIsPendingReviewsReminderOpen(false);
     try {
       await signOut();
     } catch {}
@@ -277,26 +338,35 @@ function MainApp() {
           </div>
         </div>
 
-        {/* Post-Event 360 Rating Banner (Req 7 & clarification) */}
-        {endedEventNeedingReview && (
+        {/* Post-Event 360 Rating Banner (habilitado estrictamente 2hs post-evento) */}
+        {primaryAvailableReview ? (
           <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-slate-900 border-b border-amber-500/40 px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
               <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
               <span className="text-slate-200 truncate text-[11px]">
-                Show finalizado: <strong className="text-amber-400">{endedEventNeedingReview.title}</strong>. ¡Dejá tu calificación bilateral 360°!
+                Show finalizado (+2 hs): <strong className="text-amber-400">{primaryAvailableReview.title}</strong>. ¡Dejá tu calificación 360°!
               </span>
             </div>
             <button
-              onClick={() => {
-                setReview360Event(endedEventNeedingReview);
-                setIsReview360Open(true);
-              }}
+              onClick={() => handleRatePendingItem(primaryAvailableReview)}
               className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] shrink-0 shadow-sm transition-all"
             >
               Calificar
             </button>
           </div>
-        )}
+        ) : primaryWaitingReview ? (
+          <div className="bg-slate-900/95 border-b border-cyan-500/30 px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span className="text-slate-300 truncate text-[11px]">
+                Show finalizado: <strong className="text-cyan-300">{primaryWaitingReview.title}</strong> • {primaryWaitingReview.availability.waitLabel}
+              </span>
+            </div>
+            <span className="px-2 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-bold text-[10px] shrink-0">
+              Espera 2 hs
+            </span>
+          </div>
+        ) : null}
 
         {/* Main Tab Content View */}
         <main className="flex-1 p-4 pb-20 overflow-y-auto">
@@ -329,6 +399,7 @@ function MainApp() {
           {activeTab === 'acuerdos' && (
             <AgreementsAndReviewsView
               onOpenReviewModal={handleOpenReviewModal}
+              onOpenReview360={handleOpenReview360}
               onViewVenue={handleViewVenueProfile}
               onViewMusician={handleViewMusicianProfile}
             />
@@ -339,6 +410,7 @@ function MainApp() {
               viewingTarget={viewingTarget}
               onClearTarget={handleClearViewingTarget}
               onOpenReviewModal={handleOpenReviewModal}
+              onOpenReview360={handleOpenReview360}
               onSelectTab={setActiveTab}
               onSignOut={handleSignOut}
             />
@@ -399,12 +471,28 @@ function MainApp() {
         showDate={reviewModalParams.showDate}
         showVenueName={reviewModalParams.showVenueName}
         showIdToComplete={reviewModalParams.showIdToComplete}
+        showStartTime={reviewModalParams.showStartTime}
+        showEndTime={reviewModalParams.showEndTime}
       />
 
       <Review360Modal
         isOpen={isReview360Open}
         onClose={() => setIsReview360Open(false)}
-        event={review360Event || endedEventNeedingReview || eventProposals[0] || null}
+        event={review360Event}
+      />
+
+      <PendingReviewsReminderModal
+        isOpen={!isOnboardingOpen && isPendingReviewsReminderOpen}
+        onClose={() => setIsPendingReviewsReminderOpen(false)}
+        role={role}
+        userDisplayName={userDisplayName}
+        availableNow={pendingReviewsSummary.availableNow}
+        waitingWindow={pendingReviewsSummary.waitingWindow}
+        onRateItem={handleRatePendingItem}
+        onGoToPendingTab={() => {
+          setIsIconMenuOpen(false);
+          setActiveTab(role === 'espectador' ? 'perfil' : 'acuerdos');
+        }}
       />
 
       <NotificationsDrawer

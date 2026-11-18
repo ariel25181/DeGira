@@ -44,6 +44,10 @@ import {
   applyPaymentConfirmationToEvent,
   restoreCapacityOnReservationRelease,
 } from '../utils/capacityLogic.ts';
+import {
+  REVIEW_UNLOCK_DELAY_MS,
+  getEventEndTimestampMs,
+} from '../utils/reviewEligibility.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { mapVenue, mapMusician, mapOpenCall, mapAvailability, mapLiveShow } from '../lib/supabaseMappers.ts';
 import {
@@ -169,6 +173,8 @@ interface AppContextType {
   addSpectatorBenefit: (benefit: SpectatorBenefit) => void;
 
   // Session & Authentication
+  loginTriggerCount: number;
+  markUserLoggedIn: () => void;
   loginAsAccount: (account: TestAccount) => void;
   logout: () => void;
 }
@@ -276,6 +282,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [storedUserName, setStoredUserName] = useState<string>(() => {
     return localStorage.getItem('suenaba:logged_user_name') || '';
   });
+  const [loginTriggerCount, setLoginTriggerCount] = useState<number>(0);
+
+  const markUserLoggedIn = () => {
+    setLoginTriggerCount((c) => c + 1);
+  };
 
   // Entidades principales de la nueva arquitectura DeGira
   const [eventProposals, setEventProposals] = useState<EventProposal[]>(() => {
@@ -1874,15 +1885,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const submitReview360 = (reviewData: Omit<EventReview360, 'id' | 'createdAt'>) => {
+    const isDuplicate = reviews360.some(
+      (r) =>
+        r.eventId === reviewData.eventId &&
+        r.fromRole === reviewData.fromRole &&
+        r.fromUserId === reviewData.fromUserId &&
+        r.toType === reviewData.toType &&
+        r.toId === reviewData.toId
+    );
+    if (isDuplicate) return;
+
     const newRev: EventReview360 = {
       ...reviewData,
-      id: `rev360-${Date.now()}`,
+      id: `rev360-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       createdAt: new Date().toISOString(),
     };
     setReviews360((prev) => [newRev, ...prev]);
 
-    // Recompensa para espectadores que califican
-    if (reviewData.fromRole === 'espectador') {
+    // Recompensa para espectadores que califican (1 cupón por evento)
+    if (reviewData.fromRole === 'espectador' && reviewData.toType === 'venue') {
       const reward: SpectatorBenefit = {
         badge: 'Espectador Frecuente Porteño',
         promoCode: `DEGIRA-NOCHE-${Math.floor(100 + Math.random() * 900)}`,
@@ -1951,6 +1972,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       userEmail: account.email,
       remember24h: true,
     });
+    setLoginTriggerCount((c) => c + 1);
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -2072,7 +2094,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: `notif-fb-${Date.now()}-pub`,
         title: `⭐ ¿Cómo estuvo la noche en ${ev.venueName}?`,
-        message: `Ha pasado 1 hora desde que finalizó "${ev.title}". Calificá al bar y a los músicos (${reviewRef}).`,
+        message: `Ya pasaron 2 horas desde que finalizó "${ev.title}". Calificá al bar y a los músicos (${reviewRef}).`,
         timestamp: 'Recién',
         read: false,
         type: 'review',
@@ -2080,7 +2102,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: `notif-fb-${Date.now()}-bar`,
         title: '⭐ Calificá la actuación de los músicos',
-        message: `El show "${ev.title}" terminó hace 1 hora. Evaluá el cumplimiento técnico y feedback del recital.`,
+        message: `El show "${ev.title}" terminó hace más de 2 horas. Evaluá el cumplimiento técnico y feedback del recital.`,
         timestamp: 'Recién',
         read: false,
         type: 'review',
@@ -2088,7 +2110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: `notif-fb-${Date.now()}-mus`,
         title: `⭐ Calificá la sala y hospitalidad en ${ev.venueName}`,
-        message: `¿Cómo te trató el anfitrión en "${ev.title}"? Dejá tu reseña bilateral para la comunidad.`,
+        message: `¿Cómo te trató el anfitrión en "${ev.title}"? Ya podés dejar tu reseña bilateral tras cumplirse las 2 horas post-show.`,
         timestamp: 'Recién',
         read: false,
         type: 'review',
@@ -2098,24 +2120,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     sendPushNotification({
       title: `⭐ Calificá tu experiencia en ${ev.venueName}`,
-      body: `El show finalizó hace 1 hora. Entrá para calificar al local y a los músicos con tu reseña 360°.`,
+      body: `El show finalizó hace 2 horas. Entrá para calificar al local y a los músicos con tu reseña 360°.`,
       url: reviewRef,
     });
   };
 
-  // Chequeo periódico de feedback 1h post-evento
+  // Chequeo periódico de feedback estrictamente 2hs post-evento
   useEffect(() => {
-    const interval = setInterval(() => {
+    const checkFeedbackEligibility = () => {
       const now = Date.now();
       eventProposals.forEach((ev) => {
-        if (ev.status === 'publicada' && !ev.feedbackSentAt) {
-          const endDateTime = new Date(`${ev.date}T${ev.endTime || '01:00'}`).getTime();
-          if (now >= endDateTime + 3600 * 1000) {
+        if ((ev.status === 'publicada' || ev.status === 'agotada') && !ev.feedbackSentAt) {
+          const endDateTime = getEventEndTimestampMs(ev.date, ev.startTime, ev.endTime);
+          if (Number.isFinite(endDateTime) && now >= endDateTime + REVIEW_UNLOCK_DELAY_MS) {
             triggerOneHourPostEventFeedback(ev.id);
           }
         }
       });
-    }, 30000);
+    };
+
+    checkFeedbackEligibility();
+    const interval = setInterval(checkFeedbackEligibility, 30000);
     return () => clearInterval(interval);
   }, [eventProposals]);
 
@@ -2203,6 +2228,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         joinEventWaitlist,
         triggerOneHourPostEventFeedback,
         submitReview360,
+        loginTriggerCount,
+        markUserLoggedIn,
         loginAsAccount,
         logout,
       }}

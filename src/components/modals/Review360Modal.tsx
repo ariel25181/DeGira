@@ -9,9 +9,11 @@ import {
   Calendar,
   Clock,
   ArrowRight,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { EventProposal, UserRole } from '../../types/index.ts';
+import { getEventEndTimestampMs, getReviewAvailability } from '../../utils/reviewEligibility.ts';
 
 interface Review360ModalProps {
   isOpen: boolean;
@@ -24,7 +26,14 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
   onClose,
   event,
 }) => {
-  const { role, userDisplayName, submitReview360 } = useApp();
+  const {
+    role,
+    userDisplayName,
+    activePublicUserId,
+    activeMusicianId,
+    activeVenueId,
+    submitReview360,
+  } = useApp();
 
   const [ratingEvent, setRatingEvent] = useState(5);
   const [commentEvent, setCommentEvent] = useState('');
@@ -39,16 +48,21 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
 
   if (!isOpen || !event) return null;
 
+  const endMs = getEventEndTimestampMs(event.date, event.startTime, event.endTime);
+  const availability = getReviewAvailability(endMs);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!availability.isAvailable) return;
 
     if (role === 'espectador') {
+      const spectatorId = activePublicUserId || 'user-pub-1';
       // 1. Review the Event
       submitReview360({
         eventId: event.id,
         eventTitle: event.title,
         fromRole: 'espectador',
-        fromUserId: 'user-pub-1',
+        fromUserId: spectatorId,
         fromUserName: userDisplayName,
         toType: 'event',
         toId: event.id,
@@ -63,7 +77,7 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
         eventId: event.id,
         eventTitle: event.title,
         fromRole: 'espectador',
-        fromUserId: 'user-pub-1',
+        fromUserId: spectatorId,
         fromUserName: userDisplayName,
         toType: 'venue',
         toId: event.venueId,
@@ -80,7 +94,7 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
             eventId: event.id,
             eventTitle: event.title,
             fromRole: 'espectador',
-            fromUserId: 'user-pub-1',
+            fromUserId: spectatorId,
             fromUserName: userDisplayName,
             toType: 'musician',
             toId: slot.assignedMusicianId,
@@ -97,7 +111,7 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
         eventId: event.id,
         eventTitle: event.title,
         fromRole: 'musico',
-        fromUserId: 'mus-1',
+        fromUserId: activeMusicianId || 'mus-1',
         fromUserName: userDisplayName,
         toType: 'venue',
         toId: event.venueId,
@@ -114,7 +128,7 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
             eventId: event.id,
             eventTitle: event.title,
             fromRole: 'bar',
-            fromUserId: event.venueId,
+            fromUserId: activeVenueId || event.venueId,
             fromUserName: event.venueName,
             toType: 'musician',
             toId: slot.assignedMusicianId,
@@ -190,6 +204,20 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
                   </span>
                 </div>
               </div>
+
+              {!availability.isAvailable && (
+                <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex items-start gap-2.5 text-xs text-cyan-200">
+                  <Lock className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-cyan-300">
+                      Calificación aún no habilitada
+                    </div>
+                    <p>
+                      Las calificaciones solo están disponibles <strong>2 horas después</strong> de finalizado el evento. {availability.waitLabel}.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* SECTION FOR ESPECTADOR */}
               {role === 'espectador' && (
@@ -368,10 +396,24 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
+                disabled={!availability.isAvailable}
+                className={`w-full py-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 ${
+                  availability.isAvailable
+                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
+                }`}
               >
-                <span>Enviar Calificación Bilateral 360°</span>
-                <ArrowRight className="w-4 h-4" />
+                {availability.isAvailable ? (
+                  <>
+                    <span>Enviar Calificación Bilateral 360°</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>{availability.waitLabel}</span>
+                  </>
+                )}
               </button>
             </>
           )}

@@ -16,9 +16,12 @@ import {
   ExternalLink,
   Sliders,
   Users,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
+import type { EventProposal } from '../types/index.ts';
 
 interface AgreementsAndReviewsViewProps {
   onOpenReviewModal: (params: {
@@ -28,7 +31,10 @@ interface AgreementsAndReviewsViewProps {
     showDate: string;
     showVenueName: string;
     showIdToComplete?: string;
+    showStartTime?: string;
+    showEndTime?: string;
   }) => void;
+  onOpenReview360?: (event: EventProposal) => void;
   onViewVenue: (venueId: string) => void;
   onViewMusician: (musicianId: string) => void;
 }
@@ -37,6 +43,7 @@ type AgreementsSubTab = 'bar_bids' | 'pending_reviews' | 'upcoming' | 'applicati
 
 export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> = ({
   onOpenReviewModal,
+  onOpenReview360,
   onViewVenue,
   onViewMusician,
 }) => {
@@ -45,9 +52,13 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     venues,
     currentMusician,
     currentVenue,
+    activeMusicianId,
+    activeVenueId,
     liveShows,
     openCalls,
     eventProposals,
+    publicEventReservations,
+    reviews360,
     slotBids,
     sendMusicianProposalReminder,
     retractMusicianSlotBid,
@@ -73,15 +84,18 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 
   const isBar = role === 'bar';
 
-  // Past shows that require review (either musician reviewing venue or venue reviewing musician)
-  const pastShowsNeedingReview = liveShows.filter((show) => {
-    if (role === 'musico') {
-      return show.isCompleted && !show.venueReviewed;
-    } else if (role === 'bar') {
-      return show.isCompleted && !show.musicianReviewed;
-    }
-    return show.isCompleted && (!show.venueReviewed || !show.musicianReviewed);
+  // Pending ended shows & events needing review (strict 2-hour post-event lock)
+  const pendingSummary = getPendingReviewsForRole({
+    role,
+    activeVenueId,
+    activeMusicianId,
+    eventProposals,
+    liveShows,
+    publicEventReservations,
+    reviews360,
   });
+  const pendingReviewItems = pendingSummary.allEndedPending;
+  const availableReviewsCount = pendingSummary.availableNow.length;
 
   // Upcoming confirmed shows scoped by role
   const upcomingShows = liveShows.filter((show) => !show.isCompleted);
@@ -199,7 +213,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           >
             <Star className="w-3.5 h-3.5 shrink-0" />
             <span>Por Calificar</span>
-            {pastShowsNeedingReview.length > 0 && (
+            {pendingReviewItems.length > 0 && (
               <span
                 className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
                   activeSubTab === 'pending_reviews'
@@ -207,7 +221,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     : 'bg-amber-500 text-slate-950'
                 }`}
               >
-                {pastShowsNeedingReview.length}
+                {availableReviewsCount || pendingReviewItems.length}
               </span>
             )}
           </button>
@@ -224,7 +238,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           >
             <Star className="w-3.5 h-3.5 shrink-0" />
             <span>Por Calificar</span>
-            {pastShowsNeedingReview.length > 0 && (
+            {pendingReviewItems.length > 0 && (
               <span
                 className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
                   activeSubTab === 'pending_reviews'
@@ -232,7 +246,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     : 'bg-amber-500 text-slate-950'
                 }`}
               >
-                {pastShowsNeedingReview.length}
+                {availableReviewsCount || pendingReviewItems.length}
               </span>
             )}
           </button>
@@ -559,92 +573,140 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         </div>
       )}
 
-      {/* SubTab: Calificaciones Pendientes Post-Show (Airbnb-style) */}
+      {/* SubTab: Calificaciones Pendientes Post-Show (habilitadas 2hs tras finalizar) */}
       {activeSubTab === 'pending_reviews' && (
         <div className="space-y-4">
           <div className="bg-amber-950/20 border border-amber-900/40 rounded-2xl p-4 flex items-start space-x-3 text-xs text-amber-200/90 leading-relaxed">
             <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-amber-300 mb-0.5">
-                Sistema de Reputación Bilateral Cerrado
+                Sistema de Reputación Bilateral Cerrado (Ventana 2 hs post-show)
               </p>
               <p className="text-slate-300">
-                Solo quienes hayan acordado y finalizado una fecha en DeGira pueden calificarse mutuamente (puntualidad en el pago, sonido, camarín, trato y convocatoria).
+                Solo quienes hayan acordado y finalizado un evento en DeGira pueden calificarse mutuamente, y las calificaciones se habilitan estrictamente <strong className="text-amber-300">2 horas después</strong> de finalizado el show.
               </p>
             </div>
           </div>
 
-          {pastShowsNeedingReview.length === 0 ? (
+          {pendingReviewItems.length === 0 ? (
             <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
               <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-1" />
               <p className="text-slate-200 font-bold">¡Estás al día con todas las calificaciones!</p>
               <p className="text-xs text-slate-400">
-                Cuando finalice tu próximo show, aparecerá aquí para que puedas darle feedback a la contraparte.
+                Cuando finalice tu próximo show y pasen 2 horas desde el cierre, aparecerá aquí para que puedas darle feedback a la contraparte.
               </p>
             </div>
           ) : (
-            pastShowsNeedingReview.map((show) => {
+            pendingReviewItems.map((item) => {
+              const isUnlocked = item.availability.isAvailable;
               const targetIsVenue = role === 'musico';
-              const targetName = targetIsVenue ? show.venueName : show.musicianName;
-              const targetId = targetIsVenue ? show.venueId : show.musicianId;
+              const targetName = targetIsVenue
+                ? item.venueName
+                : item.musicianNames.join(', ') || 'Músicos';
 
               return (
                 <div
-                  key={show.id}
-                  className="bg-slate-900 border-2 border-amber-500/40 rounded-2xl p-5 shadow-lg space-y-4 relative overflow-hidden"
+                  key={item.id}
+                  className={`bg-slate-900 border-2 rounded-2xl p-5 shadow-lg space-y-4 relative overflow-hidden ${
+                    isUnlocked ? 'border-amber-500/40' : 'border-slate-800 opacity-95'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                        ⭐ Show Finalizado • Calificación Pendiente
+                      <div
+                        className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          isUnlocked
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                            : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                        }`}
+                      >
+                        {!isUnlocked && <Lock className="w-3 h-3 mr-0.5" />}
+                        <span>
+                          {isUnlocked
+                            ? '⭐ Show Finalizado (+2 hs) • Calificación Pendiente'
+                            : item.availability.waitLabel}
+                        </span>
                       </div>
                       <h3 className="text-lg font-bold text-slate-100 font-display">
-                        Fecha del {formatDateBA(show.date)} en {show.venueName}
+                        {item.title}
                       </h3>
                       <p className="text-xs text-slate-400">
-                        Artista: <strong>{show.musicianName}</strong> ({show.musicianFormat})
+                        {formatDateBA(item.date)} • {item.startTime} a {item.endTime} hs • {item.venueName}
                       </p>
                     </div>
 
-                    <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-700">
-                      <img
-                        src={show.venuePhoto}
-                        alt={show.venueName}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    {item.venuePhoto && (
+                      <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-700">
+                        <img
+                          src={item.venuePhoto}
+                          alt={item.venueName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-xs space-y-1 text-slate-300">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-2">
                       <span className="text-slate-400">Bar Anfitrión:</span>
-                      <span className="font-semibold text-slate-200">
-                        {show.venueName} ({show.venueNeighborhood})
+                      <span className="font-semibold text-slate-200 text-right">
+                        {item.venueName} ({item.venueNeighborhood})
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Banda / Músico:</span>
-                      <span className="font-semibold text-slate-200">{show.musicianName}</span>
+                    {item.musicianNames.length > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-400">Banda / Músico:</span>
+                        <span className="font-semibold text-slate-200 text-right">
+                          {item.musicianNames.join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-400">A calificar:</span>
+                      <span className="font-semibold text-amber-300 text-right">
+                        {item.targetSummary}
+                      </span>
                     </div>
                   </div>
 
                   <div className="pt-1 flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        onOpenReviewModal({
-                          targetType: targetIsVenue ? 'venue' : 'musician',
-                          targetId,
-                          targetName,
-                          showDate: show.date,
-                          showVenueName: show.venueName,
-                          showIdToComplete: show.id,
-                        })
-                      }
-                      className="flex-1 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center space-x-2"
-                    >
-                      <Star className="w-4 h-4 fill-slate-950" />
-                      <span>Calificar a {targetName} estilo Airbnb</span>
-                    </button>
+                    {isUnlocked ? (
+                      <button
+                        onClick={() => {
+                          if (item.eventProposal && onOpenReview360) {
+                            onOpenReview360(item.eventProposal);
+                          } else {
+                            onOpenReviewModal(
+                              item.reviewModalParams || {
+                                targetType: targetIsVenue ? 'venue' : 'musician',
+                                targetId: targetIsVenue
+                                  ? item.venueId
+                                  : item.musicianIds[0] || 'mus-1',
+                                targetName,
+                                showDate: item.date,
+                                showVenueName: item.venueName,
+                                showIdToComplete: item.eventId,
+                                showStartTime: item.startTime,
+                                showEndTime: item.endTime,
+                              }
+                            );
+                          }
+                        }}
+                        className="flex-1 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center space-x-2"
+                      >
+                        <Star className="w-4 h-4 fill-slate-950" />
+                        <span>Calificar a {targetName}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="flex-1 py-3 px-4 bg-slate-800 text-slate-400 border border-slate-700 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 cursor-not-allowed"
+                      >
+                        <Lock className="w-4 h-4" />
+                        <span>Se habilita 2 hs tras finalizar ({item.availability.unlockTimeText})</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );

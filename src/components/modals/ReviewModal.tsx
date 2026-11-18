@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Star, CheckCircle, MessageSquare, ShieldCheck, X } from 'lucide-react';
+import { Star, CheckCircle, MessageSquare, ShieldCheck, X, Lock } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Review } from '../../types/index.ts';
 import { formatDateBA } from '../../utils/bookingLogic.ts';
+import { getEventEndTimestampMs, getReviewAvailability } from '../../utils/reviewEligibility.ts';
 
 interface ReviewModalProps {
   isOpen: boolean;
@@ -13,6 +14,8 @@ interface ReviewModalProps {
   showDate: string;
   showVenueName: string;
   showIdToComplete?: string;
+  showStartTime?: string;
+  showEndTime?: string;
 }
 
 export const ReviewModal: React.FC<ReviewModalProps> = ({
@@ -24,6 +27,8 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   showDate,
   showVenueName,
   showIdToComplete,
+  showStartTime,
+  showEndTime,
 }) => {
   const { currentMusician, currentVenue, submitReview } = useApp();
 
@@ -44,6 +49,9 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   const [professionalism, setProfessionalism] = useState<number>(5);
 
   if (!isOpen) return null;
+
+  const endMs = getEventEndTimestampMs(showDate, showStartTime, showEndTime);
+  const availability = getReviewAvailability(endMs);
 
   const availableTags =
     targetType === 'venue'
@@ -74,6 +82,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!availability.isAvailable) return;
 
     const authorType = targetType === 'venue' ? 'musician' : 'venue';
     const authorId = authorType === 'musician' ? currentMusician?.id || 'mus-1' : currentVenue?.id || 'venue-1';
@@ -152,6 +161,18 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-6 flex-1 text-slate-200">
+          {!availability.isAvailable && (
+            <div className="bg-cyan-950/40 border border-cyan-500/40 rounded-xl p-3.5 flex items-start space-x-3 text-xs text-cyan-200 leading-relaxed">
+              <Lock className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-cyan-300">Calificación aún no habilitada</p>
+                <p>
+                  Las calificaciones solo están disponibles <strong>2 horas después</strong> de finalizado el evento. {availability.waitLabel}.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Reputation badge note */}
           <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl p-3.5 flex items-start space-x-3 text-xs text-amber-200/90 leading-relaxed">
             <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
@@ -421,10 +442,24 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2"
+              disabled={!availability.isAvailable}
+              className={`w-full py-3.5 px-4 font-bold rounded-xl transition-all flex items-center justify-center space-x-2 ${
+                availability.isAvailable
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
+              }`}
             >
-              <Star className="w-4 h-4 fill-slate-950" />
-              <span>Publicar Calificación & Reseña</span>
+              {availability.isAvailable ? (
+                <>
+                  <Star className="w-4 h-4 fill-slate-950" />
+                  <span>Publicar Calificación & Reseña</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>{availability.waitLabel}</span>
+                </>
+              )}
             </button>
           </div>
         </form>
