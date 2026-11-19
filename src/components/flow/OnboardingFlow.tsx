@@ -25,6 +25,9 @@ import {
   Check,
   Download,
   Smartphone,
+  Cloud,
+  CloudOff,
+  Loader2,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
 import { useApp } from '../../context/AppContext.tsx';
@@ -78,10 +81,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
   let setUserDisplayName: ((name: string) => void) | undefined;
   let loginAsAccount: ((acc: TestAccount) => void) | undefined;
+  let firebaseUser: { email?: string | null } | null = null;
+  let cloudSyncStatus: 'local_only' | 'syncing' | 'connected' | 'error' = 'local_only';
+  let cloudSyncError: string | null = null;
+  let connectCloudWithGoogle: (() => Promise<boolean>) | undefined;
   try {
     const app = useApp();
     setUserDisplayName = app.setUserDisplayName;
     loginAsAccount = app.loginAsAccount;
+    firebaseUser = app.firebaseUser;
+    cloudSyncStatus = app.cloudSyncStatus;
+    cloudSyncError = app.cloudSyncError;
+    connectCloudWithGoogle = app.connectCloudWithGoogle;
   } catch {
     // Safe fallback if mounted without AppProvider in isolated unit tests
   }
@@ -695,6 +706,54 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Cloud Sync between multiple phones (Google / Firebase) */}
+            {connectCloudWithGoogle && (
+              <div
+                className={`p-3 rounded-2xl border text-xs space-y-2 ${
+                  firebaseUser
+                    ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-200'
+                    : 'bg-cyan-500/10 border-cyan-500/30 text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {cloudSyncStatus === 'syncing' ? (
+                      <Loader2 className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
+                    ) : firebaseUser ? (
+                      <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <CloudOff className="w-4 h-4 text-cyan-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-bold text-[11px] leading-tight">
+                        {firebaseUser
+                          ? 'Nube compartida conectada'
+                          : 'Sincronizá eventos entre celulares'}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {firebaseUser
+                          ? `${firebaseUser.email || 'Cuenta Google'} • Bares y músicos ven los mismos datos`
+                          : 'Conectá Google para compartir eventos y postulaciones con otros dispositivos'}
+                      </div>
+                    </div>
+                  </div>
+                  {!firebaseUser && (
+                    <button
+                      type="button"
+                      onClick={() => void connectCloudWithGoogle?.()}
+                      disabled={cloudSyncStatus === 'syncing'}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[11px] shrink-0 transition-all disabled:opacity-50"
+                    >
+                      Conectar Nube
+                    </button>
+                  )}
+                </div>
+                {cloudSyncError && (
+                  <p className="text-[10px] text-rose-300 leading-snug">{cloudSyncError}</p>
+                )}
+              </div>
+            )}
 
             {/* DIRECTORY OF TEST ACCOUNTS FOR EASY CREDENTIAL TESTING */}
             <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
