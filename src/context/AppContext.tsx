@@ -48,8 +48,39 @@ import {
   REVIEW_UNLOCK_DELAY_MS,
   getEventEndTimestampMs,
 } from '../utils/reviewEligibility.ts';
+import {
+  canSubmitBidForSlot,
+  applySlotAcceptToProposal,
+  applySlotReleaseToProposal,
+  isActiveSlotBid,
+} from '../utils/slotBidding.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { mapVenue, mapMusician, mapOpenCall, mapAvailability, mapLiveShow } from '../lib/supabaseMappers.ts';
+import {
+  auth,
+  testFirestoreConnection,
+  connectWithGoogle,
+  disconnectFromGoogle,
+} from '../lib/firebase.ts';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  subscribeToCloudState,
+  mergeByIdWithCloudPriority,
+  pushLocalCustomItemsToCloud,
+  syncVenueCreate,
+  syncVenueRiderUpdate,
+  syncEventProposalCreate,
+  syncEventProposalSlotsAndStatus,
+  syncEventProposalBarUpdate,
+  syncEventCapacityOrWaitlist,
+  syncSlotBidCreate,
+  syncSlotBidMusicianUpdate,
+  syncSlotBidBarResponse,
+  syncReservationCreate,
+  syncReservationSpectatorUpdate,
+  syncReservationBarUpdate,
+  syncReview360Create,
+} from '../services/firestoreSync.ts';
 import {
   sendQrTicketEmail,
   sendPaymentUploadedAlertToBar,
@@ -143,7 +174,7 @@ interface AppContextType {
     musicLinks?: MusicianMusicLinks;
     inputList?: MusicianInputChannel[];
     initialNote?: string;
-  }) => void;
+  }) => { ok: boolean; message?: string };
   updateMusicianMusicLinks: (musicianId: string, links: MusicianMusicLinks, inputList?: MusicianInputChannel[]) => void;
   sendMusicianProposalReminder: (bidId: string) => { success: boolean; message: string };
   retractMusicianSlotBid: (bidId: string) => { success: boolean; message: string };
@@ -172,11 +203,16 @@ interface AppContextType {
   spectatorBenefits: SpectatorBenefit[];
   addSpectatorBenefit: (benefit: SpectatorBenefit) => void;
 
-  // Session & Authentication
+  // Session & Authentication & Cloud Sync
   loginTriggerCount: number;
   markUserLoggedIn: () => void;
   loginAsAccount: (account: TestAccount) => void;
   logout: () => void;
+  firebaseUser: User | null;
+  cloudSyncStatus: 'local_only' | 'syncing' | 'connected' | 'error';
+  cloudSyncError: string | null;
+  connectCloudWithGoogle: () => Promise<boolean>;
+  disconnectCloud: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -374,16 +410,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ];
   });
 
-  // Sync to localStorage
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(() => auth.currentUser);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'local_only' | 'syncing' | 'connected' | 'error'>('local_only');
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
+
+  const venuesRef = useRef<VenueProfile[]>(venues);
+  const eventProposalsRef = useRef<EventProposal[]>(eventProposals);
+  const slotBidsRef = useRef<MusicianSlotBid[]>(slotBids);
+  const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
+  const reviews360Ref = useRef<EventReview360[]>(reviews360);
+
+  // Sync to localStorage & refs
   useEffect(() => {
+    venuesRef.current = venues;
+  }, [venues]);
+
+  useEffect(() => {
+    eventProposalsRef.current = eventProposals;
     localStorage.setItem(`${STORAGE_KEY_PREFIX}eventProposals`, JSON.stringify(eventProposals));
   }, [eventProposals]);
 
   useEffect(() => {
+    slotBidsRef.current = slotBids;
     localStorage.setItem(`${STORAGE_KEY_PREFIX}slotBids`, JSON.stringify(slotBids));
   }, [slotBids]);
-
-  const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
 
   useEffect(() => {
     publicEventReservationsRef.current = publicEventReservations;
@@ -391,12 +441,105 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [publicEventReservations]);
 
   useEffect(() => {
+    reviews360Ref.current = reviews360;
     localStorage.setItem(`${STORAGE_KEY_PREFIX}reviews360`, JSON.stringify(reviews360));
   }, [reviews360]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}spectatorBenefits`, JSON.stringify(spectatorBenefits));
   }, [spectatorBenefits]);
+
+  // Firestore startup connectivity check & Auth subscription
+  useEffect(() => {
+    testFirestoreConnection().catch(() => {});
+
+    let unsubCloud: (() => void) | null = null;
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubCloud) {
+        unsubCloud();
+        unsubCloud = null;
+      }
+
+      if (!user) {
+        setFirebaseUser(null);
+        setCloudSyncStatus('local_only');
+        return;
+      }
+
+      setFirebaseUser(user);
+      setCloudSyncStatus('syncing');
+      setCloudSyncError(null);
+
+      pushLocalCustomItemsToCloud({
+        uid: user.uid,
+        venues: venuesRef.current,
+        eventProposals: eventProposalsRef.current,
+        slotBids: slotBidsRef.current,
+        reviews360: reviews360Ref.current,
+      })
+        .catch((err) => {
+          console.error('Error subiendo borradores locales a la nube:', err);
+        })
+        .finally(() => {
+          try {
+            unsubCloud = subscribeToCloudState({
+              uid: user.uid,
+              onVenues: (cloudVenues) => {
+                setVenues((prev) => mergeByIdWithCloudPriority(prev, cloudVenues));
+              },
+              onEventProposals: (cloudEvents) => {
+                setEventProposals((prev) => mergeByIdWithCloudPriority(prev, cloudEvents));
+                setCloudSyncStatus('connected');
+              },
+              onSlotBids: (cloudBids) => {
+                setSlotBids((prev) => mergeByIdWithCloudPriority(prev, cloudBids));
+              },
+              onReservations: (cloudRes) => {
+                setPublicEventReservations((prev) => mergeByIdWithCloudPriority(prev, cloudRes));
+              },
+              onReviews360: (cloudRevs) => {
+                setReviews360((prev) => mergeByIdWithCloudPriority(prev, cloudRevs));
+              },
+            });
+            setCloudSyncStatus('connected');
+          } catch (err) {
+            setCloudSyncStatus('error');
+            setCloudSyncError(err instanceof Error ? err.message : 'Error de sincronización');
+          }
+        });
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubCloud) unsubCloud();
+    };
+  }, []);
+
+  const connectCloudWithGoogle = async (): Promise<boolean> => {
+    try {
+      setCloudSyncError(null);
+      setCloudSyncStatus('syncing');
+      await connectWithGoogle();
+      return true;
+    } catch (err) {
+      setCloudSyncStatus(firebaseUser ? 'connected' : 'local_only');
+      setCloudSyncError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo completar el acceso con Google.'
+      );
+      return false;
+    }
+  };
+
+  const disconnectCloud = async (): Promise<void> => {
+    try {
+      await disconnectFromGoogle();
+      setCloudSyncStatus('local_only');
+    } catch (err) {
+      console.error('Error al desconectar Google:', err);
+    }
+  };
 
   // Cronómetro de expiración de reservas (8 minutos exactos)
   useEffect(() => {
@@ -964,6 +1107,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setEventProposals((prev) => [newProposal, ...prev]);
+
+    if (firebaseUser) {
+      syncEventProposalCreate(newProposal, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
+    }
+
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -979,16 +1127,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateEventProposal = (id: string, updates: Partial<EventProposal>) => {
+    const target = eventProposalsRef.current.find((ev) => ev.id === id);
     setEventProposals((prev) =>
       prev.map((ev) => (ev.id === id ? { ...ev, ...updates } : ev))
     );
+    if (firebaseUser && target) {
+      syncEventProposalBarUpdate(
+        id,
+        {
+          ...(updates.slots ? { slots: updates.slots } : {}),
+          ...(updates.status ? { status: updates.status } : {}),
+          ...(updates.remainingCapacity !== undefined ? { remainingCapacity: updates.remainingCapacity } : {}),
+          ...(updates.cachetPaid !== undefined ? { cachetPaid: updates.cachetPaid } : {}),
+          ...(updates.cachetPaidAt !== undefined ? { cachetPaidAt: updates.cachetPaidAt } : {}),
+          ...(updates.feedbackSentAt !== undefined ? { feedbackSentAt: updates.feedbackSentAt } : {}),
+        },
+        target,
+        firebaseUser.uid
+      ).catch(() => setCloudSyncStatus('error'));
+    }
   };
 
   const publishEventProposal = (id: string) => {
+    const target = eventProposalsRef.current.find((ev) => ev.id === id);
     setEventProposals((prev) =>
       prev.map((ev) => {
         if (ev.id === id) {
-          // Notificar por email a los músicos acordados
           ev.slots.forEach((slot) => {
             if (slot.assignedMusicianId) {
               const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
@@ -1010,6 +1174,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    if (firebaseUser && target) {
+      syncEventProposalBarUpdate(
+        id,
+        { status: 'publicada' },
+        target,
+        firebaseUser.uid
+      ).catch(() => setCloudSyncStatus('error'));
+    }
+
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -1027,6 +1200,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVenues((prev) =>
       prev.map((v) => (v.id === venueId ? { ...v, defaultRiderTemplate: template } : v))
     );
+    if (firebaseUser) {
+      syncVenueRiderUpdate(venueId, template).catch(() => setCloudSyncStatus('error'));
+    }
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -1041,17 +1217,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const liquidateMusicianCachet = (proposalId: string) => {
+    const target = eventProposalsRef.current.find((ev) => ev.id === proposalId);
+    const cachetPaidAt = new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
     setEventProposals((prev) =>
       prev.map((ev) =>
         ev.id === proposalId
           ? {
               ...ev,
               cachetPaid: true,
-              cachetPaidAt: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }),
+              cachetPaidAt,
             }
           : ev
       )
     );
+    if (firebaseUser && target) {
+      syncEventProposalBarUpdate(
+        proposalId,
+        { cachetPaid: true, cachetPaidAt },
+        target,
+        firebaseUser.uid
+      ).catch(() => setCloudSyncStatus('error'));
+    }
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -1104,8 +1290,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     musicLinks?: MusicianMusicLinks;
     inputList?: MusicianInputChannel[];
     initialNote?: string;
-  }) => {
+  }): { ok: boolean; message?: string } => {
     const mus = currentMusician || musicians[0];
+    const targetEvent = eventProposalsRef.current.find((e) => e.id === data.eventId);
+    const targetSlot = targetEvent?.slots.find((s) => s.id === data.slotId);
+
+    if (targetEvent && targetSlot) {
+      const check = canSubmitBidForSlot({
+        proposal: targetEvent,
+        slot: targetSlot,
+        slotBids: slotBidsRef.current,
+        musicianId: mus.id,
+      });
+      if (!check.allowed) {
+        return { ok: false, message: check.reason };
+      }
+    }
+
     const newBid: MusicianSlotBid = {
       id: `bid-${Date.now()}`,
       eventId: data.eventId,
@@ -1133,26 +1334,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
 
-    setSlotBids((prev) => [newBid, ...prev]);
+    const nextBids = [newBid, ...slotBidsRef.current];
+    slotBidsRef.current = nextBids;
+    setSlotBids(nextBids);
 
-    setEventProposals((prev) =>
-      prev.map((ev) => {
-        if (ev.id === data.eventId) {
-          return {
-            ...ev,
-            slots: ev.slots.map((s) =>
-              s.id === data.slotId && s.status === 'libre'
-                ? { ...s, status: 'negociando' as const }
-                : s
-            ),
-          };
-        }
-        return ev;
-      })
-    );
+    let updatedEventForCloud: EventProposal | undefined;
+    const nextEvents = eventProposalsRef.current.map((ev) => {
+      if (ev.id === data.eventId) {
+        const updated: EventProposal = {
+          ...ev,
+          slots: ev.slots.map((s) =>
+            s.id === data.slotId && s.status === 'libre'
+              ? { ...s, status: 'negociando' as const }
+              : s
+          ),
+        };
+        updatedEventForCloud = updated;
+        return updated;
+      }
+      return ev;
+    });
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
 
-    const targetEvent = eventProposals.find((e) => e.id === data.eventId);
-    const targetSlot = targetEvent?.slots.find((s) => s.id === data.slotId);
+    if (firebaseUser) {
+      syncSlotBidCreate(newBid, targetEvent, firebaseUser.uid)
+        .then(() => {
+          if (updatedEventForCloud) {
+            return syncEventProposalSlotsAndStatus(updatedEventForCloud, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
+    }
+
     const barEmail = targetEvent?.venueId === 'venue-2' ? 'bar2@degira.com.ar' : 'bar1@degira.com.ar';
 
     sendProposalReceivedEmailToBar({
@@ -1183,28 +1397,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       ...prev,
     ]);
+
+    return { ok: true };
   };
 
   const sendMusicianProposalReminder = (bidId: string): { success: boolean; message: string } => {
-    const bid = slotBids.find((b) => b.id === bidId);
+    const bid = slotBidsRef.current.find((b) => b.id === bidId);
     if (!bid) return { success: false, message: 'Propuesta no encontrada.' };
 
-    const event = eventProposals.find((e) => e.id === bid.eventId);
+    const event = eventProposalsRef.current.find((e) => e.id === bid.eventId);
     const updatedCount = (bid.reminderCount || 0) + 1;
+    const updatedBid: MusicianSlotBid = {
+      ...bid,
+      reminderSentAt: new Date().toISOString(),
+      reminderCount: updatedCount,
+    };
 
-    setSlotBids((prev) =>
-      prev.map((b) =>
-        b.id === bidId
-          ? {
-              ...b,
-              reminderSentAt: new Date().toISOString(),
-              reminderCount: updatedCount,
-            }
-          : b
-      )
-    );
+    const nextBids = slotBidsRef.current.map((b) => (b.id === bidId ? updatedBid : b));
+    slotBidsRef.current = nextBids;
+    setSlotBids(nextBids);
 
-    // Notificaciones en el panel
+    if (firebaseUser) {
+      syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
+
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}-mus`,
@@ -1225,7 +1443,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
     ]);
 
-    // Push notification en tiempo real al bar
     sendPushNotification({
       title: '🔔 Recordatorio de propuesta musical',
       body: `${bid.musicianName} te recuerda responder a su propuesta para "${event?.title || 'tu fecha'}".`,
@@ -1236,13 +1453,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const retractMusicianSlotBid = (bidId: string): { success: boolean; message: string } => {
-    const bid = slotBids.find((b) => b.id === bidId);
+    const bid = slotBidsRef.current.find((b) => b.id === bidId);
     if (!bid) return { success: false, message: 'Propuesta no encontrada.' };
 
-    const event = eventProposals.find((e) => e.id === bid.eventId);
+    const event = eventProposalsRef.current.find((e) => e.id === bid.eventId);
     if (!event) return { success: false, message: 'Evento no encontrado.' };
 
-    // Regla estricta: Solo puede retractarse hasta 24hs antes del evento
     const eventStartTime = event.startTime || '21:00';
     const eventDateTime = new Date(`${event.date}T${eventStartTime}`).getTime();
     const now = Date.now();
@@ -1255,58 +1471,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Actualizar estado del bid a retractado
-    setSlotBids((prev) =>
-      prev.map((b) =>
-        b.id === bidId
-          ? {
-              ...b,
-              retracted: true,
-              retractedAt: new Date().toISOString(),
-              status: 'rechazada' as const,
-              history: [
-                ...b.history,
-                {
-                  id: `h-${Date.now()}`,
-                  actor: 'musico' as const,
-                  actorName: b.musicianName,
-                  cachetARS: b.proposedCachetARS,
-                  note: 'El músico se retractó de la propuesta (con más de 24hs de antelación al show).',
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-            }
-          : b
-      )
-    );
+    const updatedBid: MusicianSlotBid = {
+      ...bid,
+      retracted: true,
+      retractedAt: new Date().toISOString(),
+      status: 'rechazada' as const,
+      history: [
+        ...bid.history,
+        {
+          id: `h-${Date.now()}`,
+          actor: 'musico' as const,
+          actorName: bName(bid),
+          cachetARS: bid.proposedCachetARS,
+          note: 'El músico se retractó de la propuesta (con más de 24hs de antelación al show).',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
 
-    // Liberar slot en eventProposals si estaba asignado o en negociación
-    setEventProposals((prev) =>
-      prev.map((ev) => {
-        if (ev.id === bid.eventId) {
-          const updatedSlots = ev.slots.map((s) =>
-            s.id === bid.slotId && s.assignedMusicianId === bid.musicianId
-              ? {
-                  ...s,
-                  assignedMusicianId: undefined,
-                  assignedMusicianName: undefined,
-                  agreedCachetARS: undefined,
-                  status: 'libre' as const,
-                }
-              : s
-          );
-          // Si el evento estaba en 'para_publicar' y ahora le falta un músico, vuelve a 'propuesta'
-          const hasUnassigned = updatedSlots.some((s) => !s.assignedMusicianId);
-          const nextStatus = ev.status === 'para_publicar' && hasUnassigned ? ('propuesta' as const) : ev.status;
-          return {
-            ...ev,
-            slots: updatedSlots,
-            status: nextStatus,
-          };
-        }
-        return ev;
-      })
+    function bName(b: MusicianSlotBid) {
+      return b.musicianName;
+    }
+
+    const nextBids = slotBidsRef.current.map((b) => (b.id === bidId ? updatedBid : b));
+    slotBidsRef.current = nextBids;
+    setSlotBids(nextBids);
+
+    const remainingActiveForSlot = nextBids.filter(
+      (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
     );
+    const updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
+
+    const nextEvents = eventProposalsRef.current.map((ev) =>
+      ev.id === bid.eventId ? updatedEvent : ev
+    );
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
+
+    if (firebaseUser) {
+      syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid)
+        .then(() => syncEventProposalSlotsAndStatus(updatedEvent, firebaseUser.uid))
+        .catch(() => setCloudSyncStatus('error'));
+    }
 
     setNotifications((prev) => [
       {
@@ -1343,10 +1549,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     counterCachet?: number,
     note?: string
   ) => {
-    const bid = slotBids.find((b) => b.id === bidId);
+    const bid = slotBidsRef.current.find((b) => b.id === bidId);
     if (!bid) return;
 
-    const event = eventProposals.find((e) => e.id === bid.eventId);
+    const event = eventProposalsRef.current.find((e) => e.id === bid.eventId);
     if (!event) return;
 
     let newStatus: MusicianSlotBid['status'] = bid.status;
@@ -1354,33 +1560,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (action === 'accept') {
       newStatus = 'aceptada';
-      setEventProposals((prev) =>
-        prev.map((ev) => {
-          if (ev.id === bid.eventId) {
-            const updatedSlots = ev.slots.map((s) =>
-              s.id === bid.slotId
-                ? {
-                    ...s,
-                    status: 'confirmado' as const,
-                    assignedMusicianId: bid.musicianId,
-                    assignedMusicianName: bid.musicianName,
-                    agreedCachetARS: bid.proposedCachetARS,
-                  }
-                : s
-            );
-            // Con al menos un horario cubierto/confirmado ya se habilita a 'para_publicar' (intervención manual del bar requerida)
-            const hasAtLeastOneConfirmed = updatedSlots.some((s) => s.status === 'confirmado' || !!s.assignedMusicianId);
-            const nextEventStatus = (ev.status === 'propuesta' && hasAtLeastOneConfirmed) ? ('para_publicar' as const) : ev.status;
+    } else if (action === 'reject') {
+      newStatus = 'rechazada';
+    } else if (action === 'counter') {
+      newStatus = role === 'bar' ? 'contraoferta_bar' : 'contraoferta_musico';
+      if (counterCachet) newProposedCachet = counterCachet;
+    }
 
-            return {
-              ...ev,
-              slots: updatedSlots,
-              status: nextEventStatus,
-            };
-          }
-          return ev;
-        })
+    const updatedBid: MusicianSlotBid = {
+      ...bid,
+      status: newStatus,
+      proposedCachetARS: newProposedCachet,
+      history: [
+        ...bid.history,
+        {
+          id: `h-${Date.now()}`,
+          actor: role === 'bar' ? ('bar' as const) : ('musico' as const),
+          actorName: role === 'bar' ? event.venueName : bid.musicianName,
+          cachetARS: newProposedCachet,
+          note:
+            note ||
+            (action === 'accept'
+              ? 'Aceptó la propuesta.'
+              : action === 'reject'
+              ? 'Rechazó la propuesta.'
+              : 'Envió una contraoferta.'),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const nextBids = slotBidsRef.current.map((b) => (b.id === bidId ? updatedBid : b));
+    slotBidsRef.current = nextBids;
+    setSlotBids(nextBids);
+
+    let updatedEventForCloud: EventProposal | undefined;
+
+    if (action === 'accept') {
+      const updatedEvent = applySlotAcceptToProposal(event, {
+        slotId: bid.slotId,
+        musicianId: bid.musicianId,
+        musicianName: bid.musicianName,
+        proposedCachetARS: newProposedCachet,
+      });
+      updatedEventForCloud = updatedEvent;
+      const nextEvents = eventProposalsRef.current.map((ev) =>
+        ev.id === bid.eventId ? updatedEvent : ev
       );
+      eventProposalsRef.current = nextEvents;
+      setEventProposals(nextEvents);
 
       sendPushNotification({
         title: '🎸 ¡Propuesta de Fecha Aceptada!',
@@ -1389,23 +1617,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         url: '/#acuerdos',
       });
     } else if (action === 'reject') {
-      newStatus = 'rechazada';
+      // Al rechazar una propuesta, liberar inmediatamente el horario para el bar, el músico rechazado y otros músicos
+      const remainingActiveForSlot = nextBids.filter(
+        (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
+      );
+      const updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
+      updatedEventForCloud = updatedEvent;
+      const nextEvents = eventProposalsRef.current.map((ev) =>
+        ev.id === bid.eventId ? updatedEvent : ev
+      );
+      eventProposalsRef.current = nextEvents;
+      setEventProposals(nextEvents);
+
       sendPushNotification({
         title: 'Fecha no concertada',
-        body: `${event.venueName} no pudo aceptar la propuesta para "${event.title}".`,
+        body: `${event.venueName} no pudo aceptar la propuesta para "${event.title}". El horario volvió a quedar disponible.`,
         targetRole: 'musico',
         url: '/#acuerdos',
       });
     } else if (action === 'counter') {
-      newStatus = role === 'bar' ? 'contraoferta_bar' : 'contraoferta_musico';
-      if (counterCachet) newProposedCachet = counterCachet;
-
       sendPushNotification({
         title: '💬 Nueva Contraoferta de Caché',
         body: `${role === 'bar' ? event.venueName : bid.musicianName} propuso $${newProposedCachet.toLocaleString('es-AR')}.`,
         targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
+    }
+
+    if (firebaseUser) {
+      const syncPromise =
+        role === 'bar'
+          ? syncSlotBidBarResponse(updatedBid, event, firebaseUser.uid)
+          : syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid);
+
+      syncPromise
+        .then(() => {
+          if (updatedEventForCloud) {
+            return role === 'bar'
+              ? syncEventProposalBarUpdate(
+                  updatedEventForCloud.id,
+                  { slots: updatedEventForCloud.slots, status: updatedEventForCloud.status },
+                  updatedEventForCloud,
+                  firebaseUser.uid
+                )
+              : syncEventProposalSlotsAndStatus(updatedEventForCloud, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
     }
 
     const musEmail = bid.musicianId === 'mus-1' ? 'musico1@degira.com.ar' : 'musico2@degira.com.ar';
@@ -1419,29 +1677,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       note,
     });
 
-    setSlotBids((prev) =>
-      prev.map((b) =>
-        b.id === bidId
-          ? {
-              ...b,
-              status: newStatus,
-              proposedCachetARS: newProposedCachet,
-              history: [
-                ...b.history,
-                {
-                  id: `h-${Date.now()}`,
-                  actor: role === 'bar' ? ('bar' as const) : ('musico' as const),
-                  actorName: role === 'bar' ? event.venueName : b.musicianName,
-                  cachetARS: newProposedCachet,
-                  note: note || (action === 'accept' ? 'Aceptó la propuesta.' : action === 'reject' ? 'Rechazó la propuesta.' : 'Envió una contraoferta.'),
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-            }
-          : b
-      )
-    );
-
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}-neg`,
@@ -1450,13 +1685,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? '🎉 Propuesta de Fecha Aceptada'
             : action === 'counter'
             ? '💬 Contraoferta de Caché Registrada'
-            : '⚠️ Propuesta de Fecha Rechazada',
+            : '🔓 Horario Liberado tras Rechazo',
         message:
           action === 'accept'
             ? `${bid.musicianName} y ${event.venueName} confirmaron su acuerdo para "${event.title}".`
             : action === 'counter'
             ? `Se propuso un nuevo caché de $${newProposedCachet.toLocaleString('es-AR')} para "${event.title}".`
-            : `La propuesta de ${bid.musicianName} para "${event.title}" fue desestimada.`,
+            : `La propuesta de ${bid.musicianName} para "${event.title}" fue rechazada y el horario volvió a abrirse libre.`,
         timestamp: 'Recién',
         read: false,
         type: action === 'accept' ? 'confirmed' : 'application',
@@ -1466,13 +1701,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const approveAndPublishEvent = (proposalId: string) => {
-    const target = eventProposals.find((e) => e.id === proposalId);
+    const target = eventProposalsRef.current.find((e) => e.id === proposalId);
     if (!target) return;
 
     setEventProposals((prev) =>
       prev.map((ev) => {
         if (ev.id === proposalId) {
-          // Notificar por email a los músicos acordados
           ev.slots.forEach((slot) => {
             if (slot.assignedMusicianId) {
               const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
@@ -1493,6 +1727,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return ev;
       })
     );
+
+    if (firebaseUser) {
+      syncEventProposalBarUpdate(
+        proposalId,
+        { status: 'publicada' },
+        target,
+        firebaseUser.uid
+      ).catch(() => setCloudSyncStatus('error'));
+    }
 
     setNotifications((prev) => [
       {
@@ -1531,6 +1774,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setVenues((prev) => [...prev, newVenue]);
     setActiveVenueId(newVenue.id);
+
+    if (firebaseUser) {
+      syncVenueCreate(newVenue, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
+    }
 
     setNotifications((prev) => [
       {
@@ -1581,7 +1828,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPublicEventReservations((prev) => [newReservation, ...prev]);
 
-    // Enviar email al usuario confirmando la reserva pendiente con el plazo de 8 minutos
+    if (firebaseUser) {
+      syncReservationCreate(newReservation, event, firebaseUser.uid).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
+
     sendReservationCreatedEmail({
       userEmail: resolvedEmail,
       userName: resolvedName,
@@ -1608,6 +1860,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const uploadPaymentReceipt = (reservationId: string, imageDataUrl: string, ocrNotes?: string) => {
+    let updatedResForCloud: PublicEventReservation | undefined;
     setPublicEventReservations((prev) =>
       prev.map((res) => {
         if (res.id === reservationId) {
@@ -1618,8 +1871,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             receiptOcrNotes: ocrNotes || 'Comprobante recibido. Aguarda confirmación del bar.',
             status: 'comprobante_subido',
           };
+          updatedResForCloud = updated;
 
-          // Enviar alerta al bar
           sendPaymentUploadedAlertToBar({
             barEmail: 'bar1@degira.com.ar',
             venueName: res.venueName,
@@ -1634,6 +1887,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return res;
       })
     );
+
+    if (firebaseUser && updatedResForCloud) {
+      syncReservationSpectatorUpdate(updatedResForCloud).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
 
     setNotifications((prev) => [
       {
@@ -1656,30 +1915,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const previousStatus = targetRes.status;
     const qrCode = `DeGira:Reserva:${targetRes.eventId}:${targetRes.eventCode}:${targetRes.userId}:${targetRes.partySize}p`;
+    const updatedRes: PublicEventReservation = {
+      ...targetRes,
+      status: 'confirmada' as const,
+      qrTicketCode: qrCode,
+      qrEmailSent: true,
+    };
 
     setPublicEventReservations((prev) =>
       prev.map((res) =>
-        res.id === reservationId && res.status !== 'confirmada'
-          ? {
-              ...res,
-              status: 'confirmada' as const,
-              qrTicketCode: qrCode,
-              qrEmailSent: true,
-            }
-          : res
+        res.id === reservationId && res.status !== 'confirmada' ? updatedRes : res
       )
     );
 
-    // Descontar cupo de personas en el evento a nivel superior (sin anidar setState)
+    let updatedEventForCloud: EventProposal | undefined;
     setEventProposals((events) =>
-      events.map((ev) =>
-        ev.id === targetRes.eventId
-          ? applyPaymentConfirmationToEvent(ev, targetRes.partySize, previousStatus)
-          : ev
-      )
+      events.map((ev) => {
+        if (ev.id === targetRes.eventId) {
+          const updatedEv = applyPaymentConfirmationToEvent(ev, targetRes.partySize, previousStatus);
+          updatedEventForCloud = updatedEv;
+          return updatedEv;
+        }
+        return ev;
+      })
     );
 
-    // Enviar Pase QR por email al usuario público
+    if (firebaseUser) {
+      syncReservationBarUpdate(updatedRes)
+        .then(() => {
+          if (updatedEventForCloud) {
+            return syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
+    }
+
     sendQrTicketEmail({
       toEmail: targetRes.userEmail,
       userName: targetRes.userName,
@@ -1711,13 +1981,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const updatedRes: PublicEventReservation = { ...target, status: 'expirada' as const };
     setPublicEventReservations((prev) =>
       prev.map((res) =>
-        res.id === reservationId && res.status === 'pendiente_pago'
-          ? { ...res, status: 'expirada' as const }
-          : res
+        res.id === reservationId && res.status === 'pendiente_pago' ? updatedRes : res
       )
     );
+
+    if (firebaseUser) {
+      syncReservationSpectatorUpdate(updatedRes).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
 
     if (target.userEmail) {
       sendReservationExpiredEmail({
@@ -1747,27 +2022,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!target) return;
 
     const previousStatus = target.status;
+    const updatedRes: PublicEventReservation = {
+      ...target,
+      status: 'cancelada' as const,
+      rejectionReason: reason,
+    };
 
     setPublicEventReservations((prev) =>
-      prev.map((res) =>
-        res.id === reservationId
-          ? {
-              ...res,
-              status: 'cancelada' as const,
-              rejectionReason: reason,
-            }
-          : res
-      )
+      prev.map((res) => (res.id === reservationId ? updatedRes : res))
     );
 
+    let updatedEventForCloud: EventProposal | undefined;
     if (previousStatus === 'confirmada') {
       setEventProposals((events) =>
-        events.map((ev) =>
-          ev.id === target.eventId
-            ? restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus)
-            : ev
-        )
+        events.map((ev) => {
+          if (ev.id === target.eventId) {
+            const updatedEv = restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus);
+            updatedEventForCloud = updatedEv;
+            return updatedEv;
+          }
+          return ev;
+        })
       );
+    }
+
+    if (firebaseUser) {
+      syncReservationBarUpdate(updatedRes)
+        .then(() => {
+          if (updatedEventForCloud) {
+            return syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
     }
 
     setNotifications((prev) => [
@@ -1787,7 +2073,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     qrCodeOrReservationId: string
   ): { success: boolean; message: string; reservation?: PublicEventReservation } => {
     const clean = qrCodeOrReservationId.trim().toUpperCase();
-    const res = publicEventReservations.find(
+    const res = publicEventReservationsRef.current.find(
       (r) =>
         r.id === qrCodeOrReservationId ||
         r.qrTicketCode === qrCodeOrReservationId ||
@@ -1830,6 +2116,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((r) => (r.id === res.id ? updatedRes : r))
     );
 
+    if (firebaseUser) {
+      syncReservationBarUpdate(updatedRes).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
+
     setNotifications((prev) => [
       {
         id: `notif-${Date.now()}`,
@@ -1850,20 +2142,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const joinEventWaitlist = (proposalId: string, email: string): { success: boolean; message: string } => {
-    const target = eventProposals.find((e) => e.id === proposalId);
+    const target = eventProposalsRef.current.find((e) => e.id === proposalId);
     if (!target) return { success: false, message: 'Evento no encontrado' };
+
+    const tokenId = activePublicUserId || `wl-${Date.now()}`;
+    let updatedEventForCloud: EventProposal | undefined;
 
     setEventProposals((prev) =>
       prev.map((ev) => {
         if (ev.id === proposalId) {
           const list = ev.waitlist || [];
-          if (!list.includes(email)) {
-            return { ...ev, waitlist: [...list, email] };
+          const entry = firebaseUser ? tokenId : email;
+          if (!list.includes(entry)) {
+            const updatedEv = { ...ev, waitlist: [...list, entry] };
+            updatedEventForCloud = updatedEv;
+            return updatedEv;
           }
         }
         return ev;
       })
     );
+
+    if (firebaseUser && updatedEventForCloud) {
+      syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
 
     setNotifications((prev) => [
       {
@@ -1885,7 +2189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const submitReview360 = (reviewData: Omit<EventReview360, 'id' | 'createdAt'>) => {
-    const isDuplicate = reviews360.some(
+    const isDuplicate = reviews360Ref.current.some(
       (r) =>
         r.eventId === reviewData.eventId &&
         r.fromRole === reviewData.fromRole &&
@@ -1902,7 +2206,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setReviews360((prev) => [newRev, ...prev]);
 
-    // Recompensa para espectadores que califican (1 cupón por evento)
+    if (firebaseUser) {
+      const parentEvent = eventProposalsRef.current.find((e) => e.id === newRev.eventId);
+      syncReview360Create(newRev, parentEvent, firebaseUser.uid).catch(() =>
+        setCloudSyncStatus('error')
+      );
+    }
+
     if (reviewData.fromRole === 'espectador' && reviewData.toType === 'venue') {
       const reward: SpectatorBenefit = {
         badge: 'Espectador Frecuente Porteño',
@@ -1991,21 +2301,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!target) return;
 
     const previousStatus = target.status;
+    const updatedRes: PublicEventReservation = { ...target, status: 'cancelada' as const };
 
     setPublicEventReservations((prev) =>
-      prev.map((res) =>
-        res.id === reservationId ? { ...res, status: 'cancelada' as const } : res
-      )
+      prev.map((res) => (res.id === reservationId ? updatedRes : res))
     );
 
+    let updatedEventForCloud: EventProposal | undefined;
     if (previousStatus === 'confirmada') {
       setEventProposals((events) =>
-        events.map((ev) =>
-          ev.id === target.eventId
-            ? restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus)
-            : ev
-        )
+        events.map((ev) => {
+          if (ev.id === target.eventId) {
+            const updatedEv = restoreCapacityOnReservationRelease(ev, target.partySize, previousStatus);
+            updatedEventForCloud = updatedEv;
+            return updatedEv;
+          }
+          return ev;
+        })
       );
+    }
+
+    if (firebaseUser) {
+      syncReservationSpectatorUpdate(updatedRes)
+        .then(() => {
+          if (updatedEventForCloud) {
+            return syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
     }
 
     setNotifications((prev) => [
@@ -2232,6 +2555,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         markUserLoggedIn,
         loginAsAccount,
         logout,
+        firebaseUser,
+        cloudSyncStatus,
+        cloudSyncError,
+        connectCloudWithGoogle,
+        disconnectCloud,
       }}
     >
       {children}

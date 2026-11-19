@@ -1,64 +1,60 @@
 import React from 'react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 
-interface State {
-  error: Error | null;
+interface ErrorBoundaryState {
+  hasError: boolean;
+  message: string;
 }
 
-/**
- * Evita la pantalla negra: si una vista falla, muestra un mensaje
- * y permite reintentar o restablecer los datos locales.
- */
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
-  state: State = { error: null };
-
-  static getDerivedStateFromError(error: Error): State {
-    return { error };
+export class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('DeGira error:', error, info.componentStack);
-  }
-
-  handleReset = () => {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    let readable = error?.message || 'Error inesperado en la aplicación.';
     try {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith('suena_ba_v1_'))
-        .forEach((k) => localStorage.removeItem(k));
+      const parsed = JSON.parse(readable);
+      if (parsed && parsed.error) {
+        readable = `Error de sincronización (${parsed.operationType || 'operación'} en ${parsed.path || 'base'}): ${parsed.error}`;
+      }
     } catch {
-      /* ignore */
+      // Plain error message
     }
-    window.location.reload();
-  };
+    return { hasError: true, message: readable };
+  }
 
-  render() {
-    if (!this.state.error) return this.props.children;
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <div className="max-w-sm text-center space-y-4">
-          <div className="text-4xl">🎷</div>
-          <h1 className="text-xl font-bold">Algo salió mal</h1>
-          <p className="text-sm text-slate-400">
-            Esta pantalla no pudo cargarse. Probá recargar; si sigue igual, restablecé los datos locales.
-          </p>
-          <pre className="text-xs text-left text-red-300 bg-slate-900 border border-slate-800 rounded-xl p-3 overflow-auto max-h-32">
-            {this.state.error.message}
-          </pre>
-          <div className="flex gap-2 justify-center">
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-slate-900 border border-rose-500/40 rounded-3xl p-6 space-y-4 text-center shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-extrabold text-slate-100">
+              Ocurrió un inconveniente
+            </h2>
+            <p className="text-xs text-slate-300 leading-relaxed break-words">
+              {this.state.message}
+            </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm"
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2"
             >
-              Recargar
-            </button>
-            <button
-              onClick={this.handleReset}
-              className="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 text-sm"
-            >
-              Restablecer datos
+              <RefreshCw className="w-4 h-4" />
+              <span>Recargar DeGira</span>
             </button>
           </div>
         </div>
-      </div>
-    );
+      );
+    }
+
+    return this.props.children;
   }
 }

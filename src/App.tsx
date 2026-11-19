@@ -24,7 +24,8 @@ import { PWAInstallBanner, PWAInstallGuideModal } from './components/PWAInstallB
 import { SessionProvider, useSession } from './context/SessionContext.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole, EventProposal } from './types/index.ts';
-import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench, LogOut, Star, Clock } from 'lucide-react';
+import { Wifi, Battery, Signal, Sparkles, LayoutGrid, HelpCircle, RefreshCw, Share2, Wrench, LogOut, Star, Clock, Cloud, CloudOff, Loader2 } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 import { getActiveSession } from './lib/degiraSession.ts';
@@ -48,6 +49,11 @@ function MainApp() {
     reservations,
     reviews360,
     loginTriggerCount,
+    firebaseUser,
+    cloudSyncStatus,
+    cloudSyncError,
+    connectCloudWithGoogle,
+    disconnectCloud,
   } = useApp();
   const { signOut } = useSession();
 
@@ -338,6 +344,58 @@ function MainApp() {
           </div>
         </div>
 
+        {/* Cloud Sync Banner (Sincronización compartida entre dispositivos) */}
+        <div
+          data-testid="cloud-sync-bar"
+          className={`border-b px-3.5 py-1.5 flex items-center justify-between gap-2 text-[11px] ${
+            cloudSyncStatus === 'connected' && firebaseUser
+              ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+              : cloudSyncStatus === 'error'
+              ? 'bg-rose-950/30 border-rose-500/35 text-rose-200'
+              : 'bg-slate-900/80 border-slate-800/80 text-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {cloudSyncStatus === 'syncing' ? (
+              <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin shrink-0" />
+            ) : cloudSyncStatus === 'connected' && firebaseUser ? (
+              <Cloud className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            ) : (
+              <CloudOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            )}
+            <span className="truncate">
+              {cloudSyncStatus === 'syncing'
+                ? 'Sincronizando nube compartida…'
+                : cloudSyncStatus === 'connected' && firebaseUser
+                ? `Nube sincronizada • ${firebaseUser.email || 'Google'}`
+                : cloudSyncStatus === 'error' && cloudSyncError
+                ? cloudSyncError
+                : 'Modo local • Conectá Google para ver eventos entre celulares'}
+            </span>
+          </div>
+
+          <div className="shrink-0">
+            {firebaseUser ? (
+              <button
+                type="button"
+                onClick={() => void disconnectCloud()}
+                className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[10px] transition-colors"
+              >
+                Desconectar
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connectCloudWithGoogle()}
+                disabled={cloudSyncStatus === 'syncing'}
+                className="px-2.5 py-0.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[10px] transition-colors disabled:opacity-50"
+              >
+                Conectar Nube (Google)
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Post-Event 360 Rating Banner (habilitado estrictamente 2hs post-evento) */}
         {primaryAvailableReview ? (
           <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-slate-900 border-b border-amber-500/40 px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
@@ -556,10 +614,12 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <SessionProvider>
-        <MainApp />
-      </SessionProvider>
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <SessionProvider>
+          <MainApp />
+        </SessionProvider>
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

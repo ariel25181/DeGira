@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Music,
@@ -19,6 +19,7 @@ import {
 import { useApp } from '../../context/AppContext.tsx';
 import { EventProposal, EventSlot, MusicianInputChannel, MusicianMusicLinks } from '../../types/index.ts';
 import { formatARS } from '../../utils/bookingLogic.ts';
+import { canSubmitBidForSlot } from '../../utils/slotBidding.ts';
 
 interface MusicianBidModalProps {
   isOpen: boolean;
@@ -51,6 +52,17 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
   const [note, setNote] = useState<string>('');
   const [clashConfirmedByUser, setClashConfirmedByUser] = useState<boolean>(false);
   const [sentSuccess, setSentSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && event && slot) {
+      setCounterCachetARS(event.baseCachetARS || 70000);
+      setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
+      setClashConfirmedByUser(false);
+      setSubmitError(null);
+      setSentSuccess(false);
+    }
+  }, [isOpen, event?.id, slot?.id]);
 
   // Music Streaming links (No video upload, only music app links)
   const [spotifyUrl, setSpotifyUrl] = useState<string>(
@@ -160,6 +172,18 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
+
+    const slotCheck = canSubmitBidForSlot({
+      proposal: event,
+      slot,
+      slotBids,
+      musicianId: currentMusician?.id || 'mus-1',
+    });
+    if (!slotCheck.allowed) {
+      setSubmitError(slotCheck.reason || 'Este horario ya no está disponible para postular.');
+      return;
+    }
 
     if (detectedClashes.length > 0 && !clashConfirmedByUser) {
       setClashConfirmedByUser(true);
@@ -175,7 +199,7 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       bandcampUrl: bandcampUrl.trim() || undefined,
     };
 
-    submitSlotBid({
+    const result = submitSlotBid({
       eventId: event.id,
       slotId: slot.id,
       proposedCachetARS: finalProposedCachet,
@@ -186,6 +210,11 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       inputList,
       initialNote: note || (cachetAgreement === 'agree' ? 'De acuerdo con el caché propuesto por el bar.' : `Contrapropuesta de caché: ${formatARS(counterCachetARS)}`),
     });
+
+    if (!result.ok) {
+      setSubmitError(result.message || 'No se pudo enviar la propuesta para este horario.');
+      return;
+    }
 
     setSentSuccess(true);
     setTimeout(() => {
@@ -500,6 +529,13 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                     />
                     <span>Comprendo el aviso de superposición y deseo enviar mi propuesta de todas formas</span>
                   </label>
+                </div>
+              )}
+
+              {submitError && (
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-200 flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{submitError}</span>
                 </div>
               )}
 

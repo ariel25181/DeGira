@@ -24,10 +24,16 @@ import {
   Headphones,
   Sliders,
   ExternalLink,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { EventProposal, EventSlot, MusicianSlotBid } from '../types/index.ts';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import {
+  getSlotDisplayState,
+  isEventVisibleInConvocatorias,
+  isBidVisibleToViewer,
+} from '../utils/slotBidding.ts';
 import { CreateEventProposalModal } from './modals/CreateEventProposalModal.tsx';
 import { MusicianBidModal } from './modals/MusicianBidModal.tsx';
 
@@ -69,20 +75,18 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   // Status filter for bar
   const [barStatusFilter, setBarStatusFilter] = useState<'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada'>('todos');
 
-  // Filter proposals according to strict user rules:
-  // - Musician ONLY sees proposals in states EXCEPT 'publicada', 'para_publicar', and 'agotada'
-  // - Bar sees all its proposals
-  const visibleProposals = eventProposals.filter((p) => {
-    if (role === 'musico') {
-      return p.status !== 'publicada' && p.status !== 'para_publicar' && p.status !== 'agotada';
-    }
-    if (role === 'bar') {
-      if (barStatusFilter === 'todos') return true;
-      return p.status === barStatusFilter;
-    }
-    // Espectador
-    return p.status === 'publicada';
-  });
+  // Visibilidad estricta por rol:
+  // - Bar: todas sus fechas o según filtro
+  // - Músico: propuestas y fechas 'para_publicar' que aún tienen horarios libres o donde tiene propuesta activa
+  const visibleProposals = eventProposals.filter((p) =>
+    isEventVisibleInConvocatorias({
+      proposal: p,
+      role,
+      barStatusFilter,
+      slotBids,
+      musicianId: currentMusician?.id,
+    })
+  );
 
   const toggleExpand = (id: string) => {
     setExpandedProposalId((prev) => (prev === id ? null : id));
@@ -198,8 +202,15 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
         ) : (
           visibleProposals.map((proposal) => {
             const isExpanded = expandedProposalId === proposal.id;
-            const proposalBids = slotBids.filter((b) => b.eventId === proposal.id);
-            const allSlotsCovered = proposal.slots.every((s) => s.assignedMusicianId);
+            const proposalBids = slotBids.filter(
+              (b) =>
+                b.eventId === proposal.id &&
+                isBidVisibleToViewer({
+                  bid: b,
+                  viewerRole: role,
+                  viewerMusicianId: currentMusician?.id,
+                })
+            );
             const hasAtLeastOneSlotCovered = proposal.slots.some((s) => s.assignedMusicianId || s.status === 'confirmado');
 
             return (
@@ -300,13 +311,25 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     </span>
 
                     <div className="space-y-1.5">
-                      {proposal.slots.map((slot, sIdx) => {
-                        const slotBid = slotBids.find((b) => b.eventId === proposal.id && b.slotId === slot.id);
+                      {proposal.slots.map((slot) => {
+                        const slotState = getSlotDisplayState({
+                          proposal,
+                          slot,
+                          slotBids,
+                          viewerRole: role,
+                          viewerMusicianId: currentMusician?.id,
+                        });
 
                         return (
                           <div
                             key={slot.id}
-                            className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                            className={`p-3 rounded-xl bg-slate-950 border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                              slotState.availability === 'confirmado'
+                                ? 'border-emerald-500/30'
+                                : slotState.availability === 'bloqueado'
+                                ? 'border-amber-500/30'
+                                : 'border-slate-800'
+                            }`}
                           >
                             <div>
                               <div className="flex items-center gap-2">
@@ -318,20 +341,35 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 </span>
                               </div>
 
-                              {slot.assignedMusicianName ? (
+                              {slotState.availability === 'confirmado' ? (
                                 <div className="text-emerald-400 font-bold flex items-center gap-1 mt-0.5">
                                   <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                  <span>Acordado con: {slot.assignedMusicianName} ({formatARS(slot.agreedCachetARS || proposal.baseCachetARS)})</span>
+                                  <span>
+                                    {role === 'bar' || slotState.isLockedByViewer
+                                      ? `Acordado con: ${slotState.assignedMusicianName || 'Músico confirmado'} (${formatARS(slotState.agreedCachetARS || proposal.baseCachetARS)})`
+                                      : 'Horario reservado'}
+                                  </span>
+                                </div>
+                              ) : slotState.availability === 'bloqueado' ? (
+                                <div className="text-amber-300 font-semibold flex items-center gap-1.5 mt-0.5 text-[11px]">
+                                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  <span>
+                                    {slotState.isLockedByViewer
+                                      ? 'Ya te postulaste • Horario bloqueado mientras se revisa tu propuesta'
+                                      : 'Horario bloqueado • Propuesta de otro músico en revisión'}
+                                  </span>
                                 </div>
                               ) : (
                                 <div className="text-slate-400 text-[11px] mt-0.5">
-                                  {slotBid ? 'En negociación de propuesta' : 'Disponible para postular'}
+                                  {slotState.wasPreviouslyRejectedForViewer
+                                    ? 'Disponible para postular • Horario liberado tras propuesta anterior rechazada'
+                                    : 'Disponible para postular'}
                                 </div>
                               )}
                             </div>
 
-                            {/* Musician action to bid */}
-                            {role === 'musico' && !slot.assignedMusicianId && (
+                            {/* Musician action to bid — solo si el horario está libre */}
+                            {slotState.canBid ? (
                               <button
                                 onClick={() => handleOpenBidding(proposal, slot)}
                                 className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1 shadow-md shrink-0"
@@ -339,7 +377,12 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 <Music className="w-3 h-3" />
                                 <span>Cubrir este Horario</span>
                               </button>
-                            )}
+                            ) : role === 'musico' && slotState.availability === 'bloqueado' ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[11px] inline-flex items-center gap-1 shrink-0">
+                                <Lock className="w-3 h-3" />
+                                <span>{slotState.isLockedByViewer ? 'Ya te postulaste' : 'Bloqueado'}</span>
+                              </span>
+                            ) : null}
                           </div>
                         );
                       })}

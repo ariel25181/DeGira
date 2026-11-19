@@ -1,0 +1,467 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Shared Primitives ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOptionalBoundedString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isBoundedStringList(lst, maxItems) {
+      return lst is list && lst.size() <= maxItems && (lst.size() == 0 || lst[0] is string);
+    }
+
+    function isDemoVenueId(venueId) {
+      return venueId == 'venue-1' || venueId == 'venue-2';
+    }
+
+    function isDemoMusicianId(musicianId) {
+      return musicianId == 'mus-1' || musicianId == 'mus-2';
+    }
+
+    function isDemoPublicUserId(userId) {
+      return userId == 'user-pub-1' || userId == 'user-pub-2';
+    }
+
+    // --- Validation Blueprints ---
+    function isValidVenue(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'type', 'address', 'neighborhood',
+          'capacity', 'visibility', 'ownerUid', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
+          'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
+          'rating', 'reviewCount', 'ratingBreakdown', 'venueCbuAlias', 'defaultRiderTemplate',
+          'visibility', 'ownerUid', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 140
+        && data.type is string && data.type.size() >= 1 && data.type.size() <= 80
+        && data.address is string && data.address.size() >= 1 && data.address.size() <= 200
+        && data.neighborhood is string && data.neighborhood.size() >= 1 && data.neighborhood.size() <= 80
+        && isOptionalBoundedString(data, 'coverPhoto', 600)
+        && (!('photos' in data) || isBoundedStringList(data.photos, 10))
+        && isOptionalBoundedString(data, 'bio', 1200)
+        && data.capacity is number && data.capacity >= 1 && data.capacity <= 10000
+        && (!('backline' in data) || isBoundedStringList(data.backline, 30))
+        && isOptionalBoundedString(data, 'acousticCharacteristics', 500)
+        && isOptionalBoundedString(data, 'hospitality', 500)
+        && (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5))
+        && (!('reviewCount' in data) || (data.reviewCount is number && data.reviewCount >= 0))
+        && (!('ratingBreakdown' in data) || data.ratingBreakdown is map)
+        && isOptionalBoundedString(data, 'venueCbuAlias', 120)
+        && (!('defaultRiderTemplate' in data) || data.defaultRiderTemplate is map)
+        && data.visibility == 'public'
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.createdAtTimestamp is timestamp
+        && data.updatedAtTimestamp is timestamp;
+    }
+
+    function isValidEventProposal(data) {
+      return data.keys().hasAll([
+          'id', 'venueId', 'venueName', 'venueNeighborhood', 'title', 'date',
+          'startTime', 'endTime', 'totalCapacity', 'remainingCapacity',
+          'baseCachetARS', 'slots', 'rider', 'status', 'eventCode',
+          'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && data.keys().hasOnly([
+          'id', 'venueId', 'venueName', 'venueAddress', 'venueNeighborhood', 'venuePhoto',
+          'title', 'date', 'startTime', 'endTime', 'totalCapacity', 'remainingCapacity',
+          'baseCachetARS', 'ticketPriceARS', 'targetGenres', 'slots', 'rider', 'status',
+          'eventCode', 'waitlist', 'cachetPaid', 'cachetPaidAt', 'feedbackSentAt',
+          'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.venueId)
+        && data.venueName is string && data.venueName.size() >= 1 && data.venueName.size() <= 140
+        && isOptionalBoundedString(data, 'venueAddress', 200)
+        && data.venueNeighborhood is string && data.venueNeighborhood.size() >= 1 && data.venueNeighborhood.size() <= 80
+        && isOptionalBoundedString(data, 'venuePhoto', 600)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.startTime is string && data.startTime.size() >= 4 && data.startTime.size() <= 10
+        && data.endTime is string && data.endTime.size() >= 4 && data.endTime.size() <= 10
+        && data.totalCapacity is number && data.totalCapacity >= 1 && data.totalCapacity <= 10000
+        && data.remainingCapacity is number && data.remainingCapacity >= 0 && data.remainingCapacity <= data.totalCapacity
+        && data.baseCachetARS is number && data.baseCachetARS >= 0
+        && (!('ticketPriceARS' in data) || (data.ticketPriceARS is number && data.ticketPriceARS >= 0))
+        && (!('targetGenres' in data) || isBoundedStringList(data.targetGenres, 12))
+        && data.slots is list && data.slots.size() >= 1 && data.slots.size() <= 20 && data.slots[0] is map
+        && data.rider is map
+        && data.status in ['propuesta', 'cancelada', 'para_publicar', 'publicada', 'agotada']
+        && data.eventCode is string && data.eventCode.size() >= 3 && data.eventCode.size() <= 40
+        && (!('waitlist' in data) || isBoundedStringList(data.waitlist, 100))
+        && (!('cachetPaid' in data) || data.cachetPaid is bool)
+        && isOptionalBoundedString(data, 'cachetPaidAt', 60)
+        && isOptionalBoundedString(data, 'feedbackSentAt', 60)
+        && data.visibility == 'public'
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 60
+        && data.createdAtTimestamp is timestamp
+        && data.updatedAtTimestamp is timestamp;
+    }
+
+    function isValidSlotBid(data) {
+      return data.keys().hasAll([
+          'id', 'eventId', 'slotId', 'musicianId', 'musicianName',
+          'proposedCachetARS', 'musiciansCount', 'equipmentProvided', 'equipmentNeeded',
+          'status', 'history', 'visibility', 'ownerUid',
+          'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && data.keys().hasOnly([
+          'id', 'eventId', 'slotId', 'musicianId', 'musicianName', 'musicianAvatar',
+          'proposedCachetARS', 'musiciansCount', 'equipmentProvided', 'equipmentNeeded',
+          'musicLinks', 'inputList', 'reminderSentAt', 'reminderCount',
+          'retracted', 'retractedAt', 'status', 'history',
+          'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.eventId)
+        && data.slotId is string && data.slotId.size() >= 1 && data.slotId.size() <= 128
+        && data.musicianId is string && data.musicianId.size() >= 1 && data.musicianId.size() <= 128
+        && data.musicianName is string && data.musicianName.size() >= 1 && data.musicianName.size() <= 140
+        && isOptionalBoundedString(data, 'musicianAvatar', 600)
+        && data.proposedCachetARS is number && data.proposedCachetARS >= 0
+        && data.musiciansCount is number && data.musiciansCount >= 1 && data.musiciansCount <= 30
+        && data.equipmentProvided is string && data.equipmentProvided.size() <= 400
+        && data.equipmentNeeded is string && data.equipmentNeeded.size() <= 400
+        && (!('musicLinks' in data) || data.musicLinks is map)
+        && (!('inputList' in data) || (data.inputList is list && data.inputList.size() <= 32))
+        && isOptionalBoundedString(data, 'reminderSentAt', 60)
+        && (!('reminderCount' in data) || (data.reminderCount is number && data.reminderCount >= 0))
+        && (!('retracted' in data) || data.retracted is bool)
+        && isOptionalBoundedString(data, 'retractedAt', 60)
+        && data.status in ['pendiente_bar', 'contraoferta_bar', 'contraoferta_musico', 'aceptada', 'rechazada']
+        && data.history is list && data.history.size() <= 50 && (data.history.size() == 0 || data.history[0] is map)
+        && data.visibility == 'public'
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 60
+        && data.createdAtTimestamp is timestamp
+        && data.updatedAtTimestamp is timestamp;
+    }
+
+    function isValidReservation(data) {
+      return data.keys().hasAll([
+          'id', 'eventId', 'eventTitle', 'eventCode', 'venueId', 'venueName',
+          'userId', 'userName', 'partySize', 'totalARS', 'expiresAt', 'status',
+          'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && data.keys().hasOnly([
+          'id', 'eventId', 'eventTitle', 'eventCode', 'venueId', 'venueOwnerUid',
+          'venueName', 'venueAddress', 'venueNeighborhood',
+          'eventDate', 'eventStartTime', 'eventEndTime', 'userId', 'userName',
+          'partySize', 'totalARS', 'expiresAt', 'status',
+          'receiptImage', 'receiptUploadTime', 'receiptOcrNotes',
+          'qrTicketCode', 'qrEmailSent', 'checkInStatus', 'checkedInAt', 'rejectionReason',
+          'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.eventId)
+        && data.eventTitle is string && data.eventTitle.size() >= 1 && data.eventTitle.size() <= 160
+        && data.eventCode is string && data.eventCode.size() >= 3 && data.eventCode.size() <= 40
+        && isValidId(data.venueId)
+        && isOptionalBoundedString(data, 'venueOwnerUid', 128)
+        && data.venueName is string && data.venueName.size() >= 1 && data.venueName.size() <= 140
+        && isOptionalBoundedString(data, 'venueAddress', 200)
+        && isOptionalBoundedString(data, 'venueNeighborhood', 80)
+        && isOptionalBoundedString(data, 'eventDate', 20)
+        && isOptionalBoundedString(data, 'eventStartTime', 10)
+        && isOptionalBoundedString(data, 'eventEndTime', 10)
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 120
+        && data.partySize is number && data.partySize >= 1 && data.partySize <= 50
+        && data.totalARS is number && data.totalARS >= 0
+        && data.expiresAt is number && data.expiresAt > 0
+        && data.status in ['pendiente_pago', 'comprobante_subido', 'confirmada', 'expirada', 'cancelada']
+        && isOptionalBoundedString(data, 'receiptImage', 450000)
+        && isOptionalBoundedString(data, 'receiptUploadTime', 60)
+        && isOptionalBoundedString(data, 'receiptOcrNotes', 500)
+        && isOptionalBoundedString(data, 'qrTicketCode', 160)
+        && (!('qrEmailSent' in data) || data.qrEmailSent is bool)
+        && (!('checkInStatus' in data) || data.checkInStatus in ['pending', 'checked_in'])
+        && isOptionalBoundedString(data, 'checkedInAt', 60)
+        && isOptionalBoundedString(data, 'rejectionReason', 300)
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 60
+        && data.createdAtTimestamp is timestamp
+        && data.updatedAtTimestamp is timestamp;
+    }
+
+    function isValidReview360(data) {
+      return data.keys().hasAll([
+          'id', 'eventId', 'eventTitle', 'fromRole', 'fromUserId', 'fromUserName',
+          'toType', 'toId', 'toName', 'rating', 'categoryRatings', 'comment',
+          'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp'
+        ])
+        && data.keys().hasOnly([
+          'id', 'eventId', 'eventTitle', 'fromRole', 'fromUserId', 'fromUserName',
+          'toType', 'toId', 'toName', 'rating', 'categoryRatings', 'comment',
+          'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.eventId)
+        && data.eventTitle is string && data.eventTitle.size() >= 1 && data.eventTitle.size() <= 160
+        && data.fromRole in ['bar', 'musico', 'espectador']
+        && data.fromUserId is string && data.fromUserId.size() >= 1 && data.fromUserId.size() <= 128
+        && data.fromUserName is string && data.fromUserName.size() >= 1 && data.fromUserName.size() <= 140
+        && data.toType in ['event', 'venue', 'musician']
+        && data.toId is string && data.toId.size() >= 1 && data.toId.size() <= 128
+        && data.toName is string && data.toName.size() >= 1 && data.toName.size() <= 140
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.categoryRatings is map
+        && data.comment is string && data.comment.size() <= 1000
+        && data.visibility == 'public'
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 60
+        && data.createdAtTimestamp is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // Connection probe
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+
+    // Venues
+    match /venues/{venueId} {
+      allow get: if isSignedIn() && isValidId(venueId) && existing().visibility == 'public';
+      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow create: if isSignedIn()
+        && isValidId(venueId)
+        && isValidVenue(incoming())
+        && incoming().id == venueId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAtTimestamp == request.time
+        && incoming().updatedAtTimestamp == request.time;
+      allow update: if isSignedIn()
+        && isValidId(venueId)
+        && isValidVenue(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAtTimestamp == existing().createdAtTimestamp
+        && incoming().updatedAtTimestamp == request.time
+        && (
+          (
+            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().id))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
+              'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
+              'venueCbuAlias', 'defaultRiderTemplate', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'rating', 'reviewCount', 'ratingBreakdown', 'updatedAtTimestamp'
+            ])
+          )
+        );
+    }
+
+    // Event Proposals
+    match /eventProposals/{eventId} {
+      allow get: if isSignedIn() && isValidId(eventId) && existing().visibility == 'public';
+      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow create: if isSignedIn()
+        && isValidId(eventId)
+        && isValidEventProposal(incoming())
+        && incoming().id == eventId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAtTimestamp == request.time
+        && incoming().updatedAtTimestamp == request.time;
+      allow update: if isSignedIn()
+        && isValidId(eventId)
+        && isValidEventProposal(incoming())
+        && existing().status != 'cancelada'
+        && incoming().id == existing().id
+        && incoming().venueId == existing().venueId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdAtTimestamp == existing().createdAtTimestamp
+        && incoming().updatedAtTimestamp == request.time
+        && (
+          // Action 1: Bar Owner or shared test Bar Account manages event
+          (
+            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'slots', 'status', 'remainingCapacity', 'cachetPaid', 'cachetPaidAt',
+              'feedbackSentAt', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          // Action 2: Musician bid/retract syncs slot negotiation status (cannot self-publish or cancel)
+          (
+            existing().status in ['propuesta', 'para_publicar']
+            && incoming().status in ['propuesta', 'para_publicar']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'slots', 'status', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          // Action 3: Spectator reservation/waitlist capacity update (only on published/sold-out shows)
+          (
+            existing().status in ['publicada', 'agotada']
+            && incoming().status in ['publicada', 'agotada']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'remainingCapacity', 'status', 'waitlist', 'updatedAtTimestamp'
+            ])
+          )
+        );
+    }
+
+    // Slot Bids
+    match /slotBids/{bidId} {
+      allow get: if isSignedIn() && isValidId(bidId) && existing().visibility == 'public';
+      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow create: if isSignedIn()
+        && isValidId(bidId)
+        && isValidSlotBid(incoming())
+        && incoming().id == bidId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().status in ['pendiente_bar', 'contraoferta_musico']
+        && incoming().createdAtTimestamp == request.time
+        && incoming().updatedAtTimestamp == request.time
+        && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId));
+      allow update: if isSignedIn()
+        && isValidId(bidId)
+        && isValidSlotBid(incoming())
+        && existing().status != 'aceptada'
+        && existing().status != 'rechazada'
+        && incoming().id == existing().id
+        && incoming().eventId == existing().eventId
+        && incoming().slotId == existing().slotId
+        && incoming().musicianId == existing().musicianId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdAtTimestamp == existing().createdAtTimestamp
+        && incoming().updatedAtTimestamp == request.time
+        && (
+          // Action 1: Musician updates / sends reminder / counters / retracts own bid
+          // Musician can only set 'aceptada' if replying to a Bar counter-offer ('contraoferta_bar')
+          (
+            (existing().ownerUid == request.auth.uid || isDemoMusicianId(existing().musicianId))
+            && (
+              incoming().status in ['pendiente_bar', 'contraoferta_musico', 'rechazada']
+              || (incoming().status == 'aceptada' && existing().status == 'contraoferta_bar')
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'proposedCachetARS', 'history', 'reminderSentAt',
+              'reminderCount', 'retracted', 'retractedAt', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          // Action 2: Event host Bar accepts, rejects, or counter-offers
+          (
+            (
+              get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.ownerUid == request.auth.uid
+              || isDemoVenueId(get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.venueId)
+            )
+            && incoming().status in ['contraoferta_bar', 'aceptada', 'rechazada']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'proposedCachetARS', 'history', 'updatedAtTimestamp'
+            ])
+          )
+        );
+    }
+
+    // Public Event Reservations (PII-isolated: no personal emails stored)
+    match /publicEventReservations/{resId} {
+      allow get: if isSignedIn()
+        && isValidId(resId)
+        && (
+          existing().ownerUid == request.auth.uid
+          || existing().venueOwnerUid == request.auth.uid
+          || isDemoVenueId(existing().venueId)
+          || isDemoPublicUserId(existing().userId)
+        );
+      allow list: if isSignedIn()
+        && (
+          existing().ownerUid == request.auth.uid
+          || existing().venueOwnerUid == request.auth.uid
+          || isDemoVenueId(existing().venueId)
+          || isDemoPublicUserId(existing().userId)
+        );
+      allow create: if isSignedIn()
+        && isValidId(resId)
+        && isValidReservation(incoming())
+        && incoming().id == resId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().status == 'pendiente_pago'
+        && incoming().createdAtTimestamp == request.time
+        && incoming().updatedAtTimestamp == request.time
+        && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId));
+      allow update: if isSignedIn()
+        && isValidId(resId)
+        && isValidReservation(incoming())
+        && existing().status != 'expirada'
+        && existing().status != 'cancelada'
+        && incoming().id == existing().id
+        && incoming().eventId == existing().eventId
+        && incoming().venueId == existing().venueId
+        && incoming().userId == existing().userId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdAtTimestamp == existing().createdAtTimestamp
+        && incoming().updatedAtTimestamp == request.time
+        && (
+          // Action 1: Spectator uploads receipt, cancels, or expires (NEVER self-confirm)
+          (
+            (existing().ownerUid == request.auth.uid || isDemoPublicUserId(existing().userId))
+            && incoming().status in ['pendiente_pago', 'comprobante_subido', 'expirada', 'cancelada']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'receiptImage', 'receiptUploadTime', 'receiptOcrNotes', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          // Action 2: Host Bar confirms/rejects payment or records QR check-in
+          (
+            (
+              existing().venueOwnerUid == request.auth.uid
+              || isDemoVenueId(existing().venueId)
+              || get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.ownerUid == request.auth.uid
+            )
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'qrTicketCode', 'qrEmailSent', 'checkInStatus',
+              'checkedInAt', 'rejectionReason', 'updatedAtTimestamp'
+            ])
+          )
+        );
+    }
+
+    // 360 Post-Event Reviews (immutable once created)
+    match /reviews360/{reviewId} {
+      allow get: if isSignedIn() && isValidId(reviewId) && existing().visibility == 'public';
+      allow list: if isSignedIn() && existing().visibility == 'public';
+      allow create: if isSignedIn()
+        && isValidId(reviewId)
+        && isValidReview360(incoming())
+        && incoming().id == reviewId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAtTimestamp == request.time
+        && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId));
+    }
+  }
+}
