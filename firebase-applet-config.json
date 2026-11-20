@@ -1,12 +1,12 @@
 {
-  "projectId": "my-project-1580598712756",
-  "appId": "1:278371006877:web:c340b13fae423de8ed9774",
-  "apiKey": "AIzaSyD1k870R41DcJ5MSYMbHngQgS9NL5AjdGM",
-  "authDomain": "my-project-1580598712756.firebaseapp.com",
+  "projectId": "degira-app",
+  "appId": "1:445015293232:web:ab1af54d36e84fef78dcf5",
+  "apiKey": "AIzaSyDGt6RzTFigdadWl0fQAXnKBm5r1qShjvA",
+  "authDomain": "degira-app.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-suenabareddemsic-c0fa28f1-b3c5-49e8-9cd9-da193740c235",
-  "storageBucket": "my-project-1580598712756.firebasestorage.app",
-  "messagingSenderId": "278371006877",
+  "storageBucket": "degira-app.firebasestorage.app",
+  "messagingSenderId": "445015293232",
   "measurementId": "",
-  "oAuthClientId": "278371006877-epv0dvl1o5g8u8403q28v923isn99krl.apps.googleusercontent.com",
+  "oAuthClientId": "445015293232-16aj128dm7ufo4ta7rrp8c02t89h38v2.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }
