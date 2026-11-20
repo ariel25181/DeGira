@@ -396,10 +396,15 @@ export async function syncSlotBidBarResponse(
       if (parentEvent) {
         await ensureEventProposalInCloud(parentEvent, uid);
       }
-      await setDoc(ref, {
-        ...sanitizeSlotBidPayload({ ...bid, status: 'pendiente_bar' }, uid),
-        status: bid.status,
-      });
+      await setDoc(ref, sanitizeSlotBidPayload({ ...bid, status: 'pendiente_bar' }, uid));
+      if (bid.status !== 'pendiente_bar') {
+        await updateDoc(ref, {
+          status: bid.status,
+          proposedCachetARS: Math.max(0, Number(bid.proposedCachetARS) || 0),
+          history: bid.history,
+          updatedAtTimestamp: serverTimestamp(),
+        });
+      }
       return;
     }
     await updateDoc(ref, {

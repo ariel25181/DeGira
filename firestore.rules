@@ -247,7 +247,7 @@ service cloud.firestore {
 
     // Venues
     match /venues/{venueId} {
-      allow get: if isSignedIn() && isValidId(venueId) && existing().visibility == 'public';
+      allow get: if isSignedIn() && isValidId(venueId) && (resource == null || existing().visibility == 'public');
       allow list: if isSignedIn() && existing().visibility == 'public';
       allow create: if isSignedIn()
         && isValidId(venueId)
@@ -283,7 +283,7 @@ service cloud.firestore {
 
     // Event Proposals
     match /eventProposals/{eventId} {
-      allow get: if isSignedIn() && isValidId(eventId) && existing().visibility == 'public';
+      allow get: if isSignedIn() && isValidId(eventId) && (resource == null || existing().visibility == 'public');
       allow list: if isSignedIn() && existing().visibility == 'public';
       allow create: if isSignedIn()
         && isValidId(eventId)
@@ -334,7 +334,7 @@ service cloud.firestore {
 
     // Slot Bids
     match /slotBids/{bidId} {
-      allow get: if isSignedIn() && isValidId(bidId) && existing().visibility == 'public';
+      allow get: if isSignedIn() && isValidId(bidId) && (resource == null || existing().visibility == 'public');
       allow list: if isSignedIn() && existing().visibility == 'public';
       allow create: if isSignedIn()
         && isValidId(bidId)
@@ -392,7 +392,8 @@ service cloud.firestore {
       allow get: if isSignedIn()
         && isValidId(resId)
         && (
-          existing().ownerUid == request.auth.uid
+          resource == null
+          || existing().ownerUid == request.auth.uid
           || existing().venueOwnerUid == request.auth.uid
           || isDemoVenueId(existing().venueId)
           || isDemoPublicUserId(existing().userId)
@@ -453,7 +454,7 @@ service cloud.firestore {
 
     // 360 Post-Event Reviews (immutable once created)
     match /reviews360/{reviewId} {
-      allow get: if isSignedIn() && isValidId(reviewId) && existing().visibility == 'public';
+      allow get: if isSignedIn() && isValidId(reviewId) && (resource == null || existing().visibility == 'public');
       allow list: if isSignedIn() && existing().visibility == 'public';
       allow create: if isSignedIn()
         && isValidId(reviewId)
