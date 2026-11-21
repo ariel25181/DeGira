@@ -14,6 +14,7 @@ import {
   Wrench,
   LogOut,
   Download,
+  GitBranch,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { usePWAInstall } from '../hooks/usePWAInstall.ts';
@@ -31,6 +32,7 @@ interface HeaderProps {
   onOpenFeedback?: () => void;
   onOpenInstall?: () => void;
   onSignOut?: () => void;
+  onOpenGithubPush?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenFeedback,
   onOpenInstall,
   onSignOut,
+  onOpenGithubPush,
 }) => {
   const { role, setRole, currentMusician, currentVenue, notifications, userDisplayName } = useApp();
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -125,6 +128,21 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Download className="w-3.5 h-3.5 stroke-[2.3]" />
               <span className="hidden sm:inline">Instalar</span>
+            </button>
+          )}
+
+          {/* AI Studio Dev GitHub Push Button */}
+          {onOpenGithubPush && (
+            <button
+              type="button"
+              data-testid="header-github-push-btn"
+              onClick={onOpenGithubPush}
+              aria-label="Push a GitHub"
+              title="Subir cambios a GitHub (pedirá tu token)"
+              className="flex items-center justify-center gap-1 w-8 sm:w-auto sm:px-2 h-8 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition-colors"
+            >
+              <GitBranch className="w-3.5 h-3.5 stroke-[2.3]" />
+              <span className="hidden sm:inline">Push</span>
             </button>
           )}
 

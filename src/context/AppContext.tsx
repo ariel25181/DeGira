@@ -53,6 +53,10 @@ import {
   applySlotAcceptToProposal,
   applySlotReleaseToProposal,
   isActiveSlotBid,
+  applyBidSubmissionTransition,
+  applyBidResponseTransition,
+  applyBidRetractionTransition,
+  makeUniqueId,
 } from '../utils/slotBidding.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { mapVenue, mapMusician, mapOpenCall, mapAvailability, mapLiveShow } from '../lib/supabaseMappers.ts';
@@ -183,7 +187,7 @@ interface AppContextType {
     action: 'accept' | 'reject' | 'counter',
     counterCachet?: number,
     note?: string
-  ) => void;
+  ) => { ok: boolean; message?: string };
   createPublicEventReservation: (
     eventId: string,
     partySize: number,
@@ -250,12 +254,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return localStorage.getItem(`${STORAGE_KEY_PREFIX}activePublicUserId`) || 'user-pub-1';
   });
 
+  const hasLegacyString = (str: string) =>
+    str.includes('Thelonious') || str.includes('Julieta') || str.includes('Café Berlín');
+
   const [venues, setVenues] = useState<VenueProfile[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}venues`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((v: any) => v.name?.includes('Test'))) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
     return INITIAL_VENUES;
@@ -263,10 +270,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [musicians, setMusicians] = useState<MusicianProfile[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}musicians`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((m: any) => m.stageName?.includes('Test'))) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
     return INITIAL_MUSICIANS;
@@ -274,15 +281,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [publicUsers, setPublicUsers] = useState<PublicUserProfile[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}publicUsers`);
-    return saved ? JSON.parse(saved) : INITIAL_PUBLIC_USERS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return INITIAL_PUBLIC_USERS;
   });
 
   const [openCalls, setOpenCalls] = useState<VenueOpenCall[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}openCalls`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((c: any) => c.venueName?.includes('Test'))) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {}
     }
     return INITIAL_OPEN_CALLS;
@@ -290,10 +303,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [musicianAvailabilities, setMusicianAvailabilities] = useState<MusicianAvailability[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}availabilities`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((a: any) => a.musicianName?.includes('Test'))) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {}
     }
     return INITIAL_MUSICIAN_AVAILABILITIES;
@@ -301,10 +314,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [liveShows, setLiveShows] = useState<LiveShowConfirmed[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}liveShows`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some((s: any) => s.venueName?.includes('Test'))) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {}
     }
     return INITIAL_LIVE_SHOWS;
@@ -312,7 +325,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [reservations, setReservations] = useState<SpectatorReservation[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}reservations`);
-    return saved ? JSON.parse(saved) : INITIAL_SPECTATOR_RESERVATIONS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return INITIAL_SPECTATOR_RESERVATIONS;
   });
 
   const [storedUserName, setStoredUserName] = useState<string>(() => {
@@ -327,10 +346,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Entidades principales de la nueva arquitectura DeGira
   const [eventProposals, setEventProposals] = useState<EventProposal[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}eventProposals`);
-    if (saved) {
+    if (saved && !hasLegacyString(saved)) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {}
     }
     return INITIAL_EVENT_PROPOSALS;
@@ -611,39 +630,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}notifications`, JSON.stringify(notifications));
   }, [notifications]);
 
-  // Synchronize with Supabase Cloud Database (keeping strictly test entities)
+  // Synchronize with Supabase Cloud Database (keeping strictly test entities, never legacy names)
   useEffect(() => {
     async function syncWithSupabase() {
       if (!supabase) return;
       try {
+        const mergeById = <T extends { id: string }>(base: T[], incoming: T[]): T[] => {
+          const map = new Map<string, T>();
+          base.forEach((item) => map.set(item.id, item));
+          incoming.forEach((item) => map.set(item.id, item));
+          return Array.from(map.values());
+        };
+
         const { data: vData } = await supabase.from('venues').select('*');
         if (vData && vData.length > 0) {
-          const testVenues = vData.map(mapVenue).filter((v) => v.name.includes('Test') || v.id === 'venue-1');
-          if (testVenues.length > 0) setVenues(testVenues);
+          const testVenues = vData.map(mapVenue).filter((v) => v.name.includes('Test'));
+          if (testVenues.length > 0) setVenues((prev) => mergeById(INITIAL_VENUES, mergeById(prev, testVenues)));
         }
 
         const { data: mData } = await supabase.from('musicians').select('*');
         if (mData && mData.length > 0) {
-          const testMusicians = mData.map(mapMusician).filter((m) => m.stageName.includes('Test') || m.id === 'mus-1' || m.id === 'mus-2');
-          if (testMusicians.length > 0) setMusicians(testMusicians);
+          const testMusicians = mData.map(mapMusician).filter((m) => m.stageName.includes('Test'));
+          if (testMusicians.length > 0) setMusicians((prev) => mergeById(INITIAL_MUSICIANS, mergeById(prev, testMusicians)));
         }
 
         const { data: cData } = await supabase.from('open_calls').select('*');
         if (cData && cData.length > 0) {
-          const testCalls = cData.map(mapOpenCall).filter((c) => c.venueName.includes('Test') || c.venueId === 'venue-1');
-          if (testCalls.length > 0) setOpenCalls(testCalls);
+          const testCalls = cData.map(mapOpenCall).filter((c) => c.venueName.includes('Test'));
+          if (testCalls.length > 0) setOpenCalls((prev) => mergeById(INITIAL_OPEN_CALLS, mergeById(prev, testCalls)));
         }
 
         const { data: aData } = await supabase.from('musician_availabilities').select('*');
         if (aData && aData.length > 0) {
-          const testAvails = aData.map(mapAvailability).filter((a) => a.musicianName.includes('Test') || a.musicianId === 'mus-1' || a.musicianId === 'mus-2');
-          if (testAvails.length > 0) setMusicianAvailabilities(testAvails);
+          const testAvails = aData.map(mapAvailability).filter((a) => a.musicianName.includes('Test'));
+          if (testAvails.length > 0) setMusicianAvailabilities((prev) => mergeById(INITIAL_MUSICIAN_AVAILABILITIES, mergeById(prev, testAvails)));
         }
 
         const { data: sData } = await supabase.from('live_shows').select('*');
         if (sData && sData.length > 0) {
-          const testShows = sData.map(mapLiveShow).filter((s) => s.venueName.includes('Test') || s.venueId === 'venue-1');
-          if (testShows.length > 0) setLiveShows(testShows);
+          const testShows = sData.map(mapLiveShow).filter((s) => s.venueName.includes('Test'));
+          if (testShows.length > 0) setLiveShows((prev) => mergeById(INITIAL_LIVE_SHOWS, mergeById(prev, testShows)));
         }
       } catch {
         // Fallback to initial seed if offline or tables not yet migrated
@@ -1098,15 +1124,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     data: Omit<EventProposal, 'id' | 'createdAt' | 'eventCode' | 'remainingCapacity'>
   ): EventProposal => {
     const codeNumber = Math.floor(1000 + Math.random() * 9000);
+    const barTag = data.venueId === 'venue-2' ? 'BAR2' : data.venueId === 'venue-1' ? 'BAR1' : 'BAR';
     const newProposal: EventProposal = {
       ...data,
-      id: `ev-${Date.now()}`,
-      eventCode: `DG-BAR1-${codeNumber}`,
+      id: makeUniqueId('ev'),
+      eventCode: `DG-${barTag}-${codeNumber}`,
       remainingCapacity: data.totalCapacity,
       status: data.status || 'propuesta',
       createdAt: new Date().toISOString(),
     };
-    setEventProposals((prev) => [newProposal, ...prev]);
+    const nextEvents = [newProposal, ...eventProposalsRef.current];
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
 
     if (firebaseUser) {
       syncEventProposalCreate(newProposal, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
@@ -1114,7 +1143,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}`,
+        id: makeUniqueId('notif'),
         title: '📋 Propuesta de Evento creada',
         message: `Has creado la propuesta "${newProposal.title}" con código ${newProposal.eventCode}.`,
         timestamp: 'Recién',
@@ -1127,10 +1156,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateEventProposal = (id: string, updates: Partial<EventProposal>) => {
+    if (role !== 'bar') return;
     const target = eventProposalsRef.current.find((ev) => ev.id === id);
-    setEventProposals((prev) =>
-      prev.map((ev) => (ev.id === id ? { ...ev, ...updates } : ev))
+    if (!target) return;
+    if (currentVenue && target.venueId !== currentVenue.id) return;
+    const nextEvents = eventProposalsRef.current.map((ev) =>
+      ev.id === id ? { ...ev, ...updates } : ev
     );
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
     if (firebaseUser && target) {
       syncEventProposalBarUpdate(
         id,
@@ -1149,9 +1183,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const publishEventProposal = (id: string) => {
+    if (role !== 'bar') return;
     const target = eventProposalsRef.current.find((ev) => ev.id === id);
-    setEventProposals((prev) =>
-      prev.map((ev) => {
+    if (!target) return;
+    if (currentVenue && target.venueId !== currentVenue.id) return;
+    const hasConfirmedSlot = target.slots.some(
+      (s) => s.status === 'confirmado' || Boolean(s.assignedMusicianId)
+    );
+    if (!hasConfirmedSlot) return;
+    const nextEvents = eventProposalsRef.current.map((ev) => {
         if (ev.id === id) {
           ev.slots.forEach((slot) => {
             if (slot.assignedMusicianId) {
@@ -1171,8 +1211,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return { ...ev, status: 'publicada' as const };
         }
         return ev;
-      })
-    );
+      });
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
 
     if (firebaseUser && target) {
       syncEventProposalBarUpdate(
@@ -1295,20 +1336,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetEvent = eventProposalsRef.current.find((e) => e.id === data.eventId);
     const targetSlot = targetEvent?.slots.find((s) => s.id === data.slotId);
 
-    if (targetEvent && targetSlot) {
-      const check = canSubmitBidForSlot({
-        proposal: targetEvent,
-        slot: targetSlot,
-        slotBids: slotBidsRef.current,
-        musicianId: mus.id,
-      });
-      if (!check.allowed) {
-        return { ok: false, message: check.reason };
-      }
-    }
-
     const newBid: MusicianSlotBid = {
-      id: `bid-${Date.now()}`,
+      id: makeUniqueId('bid'),
       eventId: data.eventId,
       slotId: data.slotId,
       musicianId: mus.id,
@@ -1323,7 +1352,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'pendiente_bar',
       history: [
         {
-          id: `h-${Date.now()}`,
+          id: makeUniqueId('h'),
           actor: 'musico',
           actorName: mus.stageName,
           cachetARS: data.proposedCachetARS,
@@ -1334,35 +1363,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
 
-    const nextBids = [newBid, ...slotBidsRef.current];
-    slotBidsRef.current = nextBids;
-    setSlotBids(nextBids);
-
-    let updatedEventForCloud: EventProposal | undefined;
-    const nextEvents = eventProposalsRef.current.map((ev) => {
-      if (ev.id === data.eventId) {
-        const updated: EventProposal = {
-          ...ev,
-          slots: ev.slots.map((s) =>
-            s.id === data.slotId && s.status === 'libre'
-              ? { ...s, status: 'negociando' as const }
-              : s
-          ),
-        };
-        updatedEventForCloud = updated;
-        return updated;
-      }
-      return ev;
+    const transition = applyBidSubmissionTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      bid: newBid,
     });
-    eventProposalsRef.current = nextEvents;
-    setEventProposals(nextEvents);
+    if (!transition.ok) {
+      return { ok: false, message: transition.message };
+    }
+
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
+    eventProposalsRef.current = transition.eventProposals;
+    setEventProposals(transition.eventProposals);
 
     if (firebaseUser) {
       syncSlotBidCreate(newBid, targetEvent, firebaseUser.uid)
         .then(() => {
-          if (updatedEventForCloud) {
-            return syncEventProposalSlotsAndStatus(updatedEventForCloud, firebaseUser.uid);
-          }
+          return syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid);
         })
         .catch(() => setCloudSyncStatus('error'));
     }
@@ -1380,7 +1398,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}-mus`,
+        id: makeUniqueId('notif-mus'),
         title: '🎵 Propuesta enviada al bar',
         message: `Tu propuesta para "${targetEvent?.title || 'el evento'}" fue enviada a ${targetEvent?.venueName || 'el bar'}.`,
         timestamp: 'Recién',
@@ -1388,7 +1406,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: 'application',
       },
       {
-        id: `notif-${Date.now()}-bar`,
+        id: makeUniqueId('notif-bar'),
         title: '🎸 Nueva Postulación de Músico',
         message: `${mus.stageName} envió una propuesta con caché de $${data.proposedCachetARS.toLocaleString('es-AR')} para "${targetEvent?.title || 'tu fecha'}".`,
         timestamp: 'Recién',
@@ -1425,7 +1443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}-mus`,
+        id: makeUniqueId('notif-mus'),
         title: '🔔 Recordatorio enviado al Bar',
         message: `Le enviaste un recordatorio a ${event?.venueName || 'el bar'} para que revise tu propuesta para "${event?.title || 'el evento'}".`,
         timestamp: 'Recién',
@@ -1433,7 +1451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: 'system',
       },
       {
-        id: `notif-${Date.now()}-bar`,
+        id: makeUniqueId('notif-bar'),
         title: '🔔 Recordatorio de Propuesta Recibida',
         message: `${bid.musicianName} te envió un recordatorio sobre su propuesta pendiente para "${event?.title || 'tu fecha'}".`,
         timestamp: 'Recién',
@@ -1453,80 +1471,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const retractMusicianSlotBid = (bidId: string): { success: boolean; message: string } => {
-    const bid = slotBidsRef.current.find((b) => b.id === bidId);
-    if (!bid) return { success: false, message: 'Propuesta no encontrada.' };
+    const transition = applyBidRetractionTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      bidId,
+      actorMusicianId: currentMusician?.id,
+    });
 
-    const event = eventProposalsRef.current.find((e) => e.id === bid.eventId);
-    if (!event) return { success: false, message: 'Evento no encontrado.' };
-
-    const eventStartTime = event.startTime || '21:00';
-    const eventDateTime = new Date(`${event.date}T${eventStartTime}`).getTime();
-    const now = Date.now();
-    const hoursRemaining = (eventDateTime - now) / (1000 * 60 * 60);
-
-    if (hoursRemaining < 24) {
-      return {
-        success: false,
-        message: `No es posible retractarse: faltan ${Math.max(0, Math.floor(hoursRemaining))} hs para el inicio del show (la app solo permite retractarse con un mínimo de 24 horas de antelación).`,
-      };
+    if (!transition.ok) {
+      return { success: false, message: transition.message };
     }
 
-    const updatedBid: MusicianSlotBid = {
-      ...bid,
-      retracted: true,
-      retractedAt: new Date().toISOString(),
-      status: 'rechazada' as const,
-      history: [
-        ...bid.history,
-        {
-          id: `h-${Date.now()}`,
-          actor: 'musico' as const,
-          actorName: bName(bid),
-          cachetARS: bid.proposedCachetARS,
-          note: 'El músico se retractó de la propuesta (con más de 24hs de antelación al show).',
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    };
-
-    function bName(b: MusicianSlotBid) {
-      return b.musicianName;
-    }
-
-    const nextBids = slotBidsRef.current.map((b) => (b.id === bidId ? updatedBid : b));
-    slotBidsRef.current = nextBids;
-    setSlotBids(nextBids);
-
-    const remainingActiveForSlot = nextBids.filter(
-      (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
-    );
-    const updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
-
-    const nextEvents = eventProposalsRef.current.map((ev) =>
-      ev.id === bid.eventId ? updatedEvent : ev
-    );
-    eventProposalsRef.current = nextEvents;
-    setEventProposals(nextEvents);
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
+    eventProposalsRef.current = transition.eventProposals;
+    setEventProposals(transition.eventProposals);
 
     if (firebaseUser) {
-      syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid)
-        .then(() => syncEventProposalSlotsAndStatus(updatedEvent, firebaseUser.uid))
+      syncSlotBidMusicianUpdate(transition.updatedBid, transition.event, firebaseUser.uid)
+        .then(() => syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid))
         .catch(() => setCloudSyncStatus('error'));
     }
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}-retract`,
+        id: makeUniqueId('notif-retract'),
         title: '↩️ Propuesta Retractada',
-        message: `Te retractaste con éxito de la fecha en ${event.venueName} (${event.date}). El horario quedó disponible nuevamente.`,
+        message: `Te retractaste con éxito de la fecha en ${transition.event.venueName} (${transition.event.date}). El horario quedó disponible nuevamente.`,
         timestamp: 'Recién',
         read: false,
         type: 'system',
       },
       {
-        id: `notif-${Date.now()}-bar-retract`,
+        id: makeUniqueId('notif-bar-retract'),
         title: '↩️ Un músico se retractó del horario',
-        message: `${bid.musicianName} se retractó de su horario para "${event.title}" (más de 24hs de anticipación). El slot quedó libre para recibir nuevas propuestas.`,
+        message: `${transition.updatedBid.musicianName} se retractó de su horario para "${transition.event.title}" (más de 24hs de anticipación). El slot quedó libre para recibir nuevas propuestas.`,
         timestamp: 'Recién',
         read: false,
         type: 'application',
@@ -1536,7 +1515,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     sendPushNotification({
       title: '↩️ Músico se retractó de la fecha',
-      body: `${bid.musicianName} se retractó del show "${event.title}". El horario quedó libre.`,
+      body: `${transition.updatedBid.musicianName} se retractó del show "${transition.event.title}". El horario quedó libre.`,
       targetRole: 'bar',
     });
 
@@ -1548,97 +1527,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     action: 'accept' | 'reject' | 'counter',
     counterCachet?: number,
     note?: string
-  ) => {
-    const bid = slotBidsRef.current.find((b) => b.id === bidId);
-    if (!bid) return;
+  ): { ok: boolean; message?: string } => {
+    const actorEntityId = role === 'bar' ? currentVenue?.id : role === 'musico' ? currentMusician?.id : undefined;
 
-    const event = eventProposalsRef.current.find((e) => e.id === bid.eventId);
-    if (!event) return;
+    const transition = applyBidResponseTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      bidId,
+      actorRole: role,
+      actorEntityId,
+      action,
+      counterCachet,
+      note,
+    });
 
-    let newStatus: MusicianSlotBid['status'] = bid.status;
-    let newProposedCachet = bid.proposedCachetARS;
-
-    if (action === 'accept') {
-      newStatus = 'aceptada';
-    } else if (action === 'reject') {
-      newStatus = 'rechazada';
-    } else if (action === 'counter') {
-      newStatus = role === 'bar' ? 'contraoferta_bar' : 'contraoferta_musico';
-      if (counterCachet) newProposedCachet = counterCachet;
+    if (!transition.ok) {
+      return { ok: false, message: transition.message };
     }
 
-    const updatedBid: MusicianSlotBid = {
-      ...bid,
-      status: newStatus,
-      proposedCachetARS: newProposedCachet,
-      history: [
-        ...bid.history,
-        {
-          id: `h-${Date.now()}`,
-          actor: role === 'bar' ? ('bar' as const) : ('musico' as const),
-          actorName: role === 'bar' ? event.venueName : bid.musicianName,
-          cachetARS: newProposedCachet,
-          note:
-            note ||
-            (action === 'accept'
-              ? 'Aceptó la propuesta.'
-              : action === 'reject'
-              ? 'Rechazó la propuesta.'
-              : 'Envió una contraoferta.'),
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    };
+    const { updatedBid, updatedEvent, event } = transition;
+    const newProposedCachet = updatedBid.proposedCachetARS;
 
-    const nextBids = slotBidsRef.current.map((b) => (b.id === bidId ? updatedBid : b));
-    slotBidsRef.current = nextBids;
-    setSlotBids(nextBids);
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
 
-    let updatedEventForCloud: EventProposal | undefined;
+    if (updatedEvent) {
+      eventProposalsRef.current = transition.eventProposals;
+      setEventProposals(transition.eventProposals);
+    }
 
     if (action === 'accept') {
-      const updatedEvent = applySlotAcceptToProposal(event, {
-        slotId: bid.slotId,
-        musicianId: bid.musicianId,
-        musicianName: bid.musicianName,
-        proposedCachetARS: newProposedCachet,
-      });
-      updatedEventForCloud = updatedEvent;
-      const nextEvents = eventProposalsRef.current.map((ev) =>
-        ev.id === bid.eventId ? updatedEvent : ev
-      );
-      eventProposalsRef.current = nextEvents;
-      setEventProposals(nextEvents);
-
       sendPushNotification({
         title: '🎸 ¡Propuesta de Fecha Aceptada!',
-        body: `${event.venueName} aceptó tu propuesta para el show "${event.title}".`,
-        targetRole: 'musico',
+        body: `${event.venueName} aceptó el acuerdo para el show "${event.title}".`,
+        targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
     } else if (action === 'reject') {
-      // Al rechazar una propuesta, liberar inmediatamente el horario para el bar, el músico rechazado y otros músicos
-      const remainingActiveForSlot = nextBids.filter(
-        (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
-      );
-      const updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
-      updatedEventForCloud = updatedEvent;
-      const nextEvents = eventProposalsRef.current.map((ev) =>
-        ev.id === bid.eventId ? updatedEvent : ev
-      );
-      eventProposalsRef.current = nextEvents;
-      setEventProposals(nextEvents);
-
       sendPushNotification({
         title: 'Fecha no concertada',
-        body: `${event.venueName} no pudo aceptar la propuesta para "${event.title}". El horario volvió a quedar disponible.`,
-        targetRole: 'musico',
+        body: `Propuesta rechazada para "${event.title}". El horario volvió a quedar disponible.`,
+        targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
     } else if (action === 'counter') {
       sendPushNotification({
         title: '💬 Nueva Contraoferta de Caché',
-        body: `${role === 'bar' ? event.venueName : bid.musicianName} propuso $${newProposedCachet.toLocaleString('es-AR')}.`,
+        body: `${role === 'bar' ? event.venueName : updatedBid.musicianName} propuso $${newProposedCachet.toLocaleString('es-AR')}.`,
         targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
@@ -1652,24 +1587,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       syncPromise
         .then(() => {
-          if (updatedEventForCloud) {
+          if (updatedEvent) {
             return role === 'bar'
               ? syncEventProposalBarUpdate(
-                  updatedEventForCloud.id,
-                  { slots: updatedEventForCloud.slots, status: updatedEventForCloud.status },
-                  updatedEventForCloud,
+                  updatedEvent.id,
+                  { slots: updatedEvent.slots, status: updatedEvent.status },
+                  updatedEvent,
                   firebaseUser.uid
                 )
-              : syncEventProposalSlotsAndStatus(updatedEventForCloud, firebaseUser.uid);
+              : syncEventProposalSlotsAndStatus(updatedEvent, firebaseUser.uid);
           }
         })
         .catch(() => setCloudSyncStatus('error'));
     }
 
-    const musEmail = bid.musicianId === 'mus-1' ? 'musico1@degira.com.ar' : 'musico2@degira.com.ar';
+    const musEmail = updatedBid.musicianId === 'mus-1' ? 'musico1@degira.com.ar' : 'musico2@degira.com.ar';
     sendNegotiationUpdateEmailToMusician({
       musicianEmail: musEmail,
-      musicianName: bid.musicianName,
+      musicianName: updatedBid.musicianName,
       venueName: event.venueName,
       eventTitle: event.title,
       action,
@@ -1679,7 +1614,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}-neg`,
+        id: makeUniqueId('notif-neg'),
         title:
           action === 'accept'
             ? '🎉 Propuesta de Fecha Aceptada'
@@ -1688,24 +1623,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : '🔓 Horario Liberado tras Rechazo',
         message:
           action === 'accept'
-            ? `${bid.musicianName} y ${event.venueName} confirmaron su acuerdo para "${event.title}".`
+            ? `${updatedBid.musicianName} y ${event.venueName} confirmaron su acuerdo para "${event.title}".`
             : action === 'counter'
             ? `Se propuso un nuevo caché de $${newProposedCachet.toLocaleString('es-AR')} para "${event.title}".`
-            : `La propuesta de ${bid.musicianName} para "${event.title}" fue rechazada y el horario volvió a abrirse libre.`,
+            : `La propuesta de ${updatedBid.musicianName} para "${event.title}" fue rechazada y el horario volvió a abrirse libre.`,
         timestamp: 'Recién',
         read: false,
         type: action === 'accept' ? 'confirmed' : 'application',
       },
       ...prev,
     ]);
+
+    return { ok: true };
   };
 
   const approveAndPublishEvent = (proposalId: string) => {
+    if (role !== 'bar') return;
     const target = eventProposalsRef.current.find((e) => e.id === proposalId);
     if (!target) return;
+    if (currentVenue && target.venueId !== currentVenue.id) return;
+    const hasConfirmedSlot = target.slots.some(
+      (s) => s.status === 'confirmado' || Boolean(s.assignedMusicianId)
+    );
+    if (!hasConfirmedSlot) return;
 
-    setEventProposals((prev) =>
-      prev.map((ev) => {
+    const nextEvents = eventProposalsRef.current.map((ev) => {
         if (ev.id === proposalId) {
           ev.slots.forEach((slot) => {
             if (slot.assignedMusicianId) {
@@ -1725,8 +1667,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return { ...ev, status: 'publicada' as const };
         }
         return ev;
-      })
-    );
+      });
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
 
     if (firebaseUser) {
       syncEventProposalBarUpdate(

@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 import webpush from 'web-push';
 import { createServer as createViteServer } from 'vite';
 import { analyzePaymentReceiptOnServer, GeminiHttpError } from './server/gemini.ts';
+import {
+  DEFAULT_GITHUB_BRANCH,
+  DEFAULT_GITHUB_WEB_URL,
+  GitHubPushHttpError,
+  isSameOriginDevRequest,
+  runGitHubPushOnServer,
+} from './server/githubPush.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,6 +196,54 @@ app.post('/api/gemini/analyze-receipt', async (req, res) => {
         : 500;
     const message = err?.message || 'Error al analizar el comprobante con Gemini.';
     res.status(status).json({ error: message });
+  }
+});
+
+// AI Studio / Dev-only GitHub Push endpoints (never exposed in static production builds)
+app.get('/api/dev/github-push/status', (_req, res) => {
+  const enabled = process.env.NODE_ENV !== 'production';
+  res.json({
+    enabled,
+    repo: 'ariel25181/DeGira',
+    repoUrl: DEFAULT_GITHUB_WEB_URL,
+    branch: DEFAULT_GITHUB_BRANCH,
+    hasEnvToken: Boolean(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
+  });
+});
+
+app.post('/api/dev/github-push', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({
+      error: 'Esta utilidad solo está disponible en el entorno de desarrollo de AI Studio.',
+    });
+  }
+
+  if (!isSameOriginDevRequest(req.headers)) {
+    return res.status(403).json({
+      error: 'Solicitud bloqueada por validación de origen.',
+    });
+  }
+
+  const { token, commitMessage, skipChecks, deployPages } = req.body || {};
+
+  try {
+    const result = await runGitHubPushOnServer({
+      token,
+      commitMessage,
+      skipChecks,
+      deployPages,
+    });
+    res.json(result);
+  } catch (err: any) {
+    const status =
+      err instanceof GitHubPushHttpError
+        ? err.statusCode
+        : typeof err?.statusCode === 'number'
+        ? err.statusCode
+        : 500;
+    res.status(status).json({
+      error: err?.message || 'No se pudo completar el push a GitHub.',
+    });
   }
 });
 

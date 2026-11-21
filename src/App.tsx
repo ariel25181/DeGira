@@ -20,6 +20,7 @@ import { PendingReviewsReminderModal } from './components/modals/PendingReviewsR
 import { NotificationsDrawer } from './components/modals/NotificationsDrawer.tsx';
 import { ShareModal } from './components/modals/ShareModal.tsx';
 import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
+import { GitHubPushModal } from './components/modals/GitHubPushModal.tsx';
 import { PWAInstallBanner, PWAInstallGuideModal } from './components/PWAInstallBanner.tsx';
 import { SessionProvider, useSession } from './context/SessionContext.tsx';
 
@@ -98,6 +99,46 @@ function MainApp() {
   const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState<boolean>(false);
+  const [isGithubPushOpen, setIsGithubPushOpen] = useState<boolean>(false);
+  const [githubPushStatus, setGithubPushStatus] = useState<{
+    enabled: boolean;
+    hasEnvToken: boolean;
+    repo: string;
+    branch: string;
+  }>({
+    enabled: false,
+    hasEnvToken: false,
+    repo: 'ariel25181/DeGira',
+    branch: 'main',
+  });
+
+  useEffect(() => {
+    let active = true;
+    const checkStatus = async () => {
+      try {
+        if (typeof window === 'undefined' || typeof fetch !== 'function') return;
+        const res = await fetch('/api/dev/github-push/status');
+        if (!res.ok) return;
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return;
+        const data = await res.json();
+        if (active && data?.enabled === true) {
+          setGithubPushStatus({
+            enabled: true,
+            hasEnvToken: Boolean(data.hasEnvToken),
+            repo: typeof data.repo === 'string' ? data.repo : 'ariel25181/DeGira',
+            branch: typeof data.branch === 'string' ? data.branch : 'main',
+          });
+        }
+      } catch {
+        // Static production builds (e.g. GitHub Pages) have no dev API endpoint
+      }
+    };
+    void checkStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Mobile frame simulator toggle
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -309,6 +350,7 @@ function MainApp() {
           onOpenFeedback={() => setIsFeedbackOpen(true)}
           onOpenInstall={() => setIsInstallGuideOpen(true)}
           onSignOut={handleSignOut}
+          onOpenGithubPush={githubPushStatus.enabled ? () => setIsGithubPushOpen(true) : undefined}
         />
 
         {/* PWA In-App Install Prompt Banner */}
@@ -586,6 +628,7 @@ function MainApp() {
           onOpenFeedback={() => setIsFeedbackOpen(true)}
           onOpenInstall={() => setIsInstallGuideOpen(true)}
           onClose={() => setIsOnboardingOpen(false)}
+          onOpenGithubPush={githubPushStatus.enabled ? () => setIsGithubPushOpen(true) : undefined}
         />
       )}
 
@@ -601,6 +644,15 @@ function MainApp() {
         onClose={() => setIsFeedbackOpen(false)}
         currentRole={role}
         currentTab={activeTab}
+      />
+
+      {/* AI Studio Dev GitHub Push Modal */}
+      <GitHubPushModal
+        isOpen={isGithubPushOpen}
+        onClose={() => setIsGithubPushOpen(false)}
+        hasEnvToken={githubPushStatus.hasEnvToken}
+        repoName={githubPushStatus.repo}
+        branch={githubPushStatus.branch}
       />
 
       {/* PWA Install Guide Modal (above OnboardingFlow) */}

@@ -21,6 +21,7 @@ import {
 import { useApp } from '../context/AppContext.tsx';
 import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
 import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
+import { detectMusicianDateClashes, isActiveSlotBid } from '../utils/slotBidding.ts';
 import type { EventProposal } from '../types/index.ts';
 
 interface AgreementsAndReviewsViewProps {
@@ -76,11 +77,21 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const [counterInputId, setCounterInputId] = useState<string | null>(null);
   const [counterAmount, setCounterAmount] = useState<number>(80000);
   const [counterNote, setCounterNote] = useState<string>('');
+  const [confirmRetractBidId, setConfirmRetractBidId] = useState<string | null>(null);
+  const [negError, setNegError] = useState<string | null>(null);
 
-  // Keep sub-tabs strictly scoped to the active role (bar vs musico)
+  // Keep sub-tabs strictly scoped to the active role (bar vs musico) & clear ephemeral inputs on switch
   useEffect(() => {
     setActiveSubTab(role === 'bar' ? 'bar_bids' : 'pending_reviews');
   }, [role]);
+
+  useEffect(() => {
+    setCounterInputId(null);
+    setCounterNote('');
+    setRetractionFeedback(null);
+    setConfirmRetractBidId(null);
+    setNegError(null);
+  }, [role, activeVenueId, activeMusicianId]);
 
   const isBar = role === 'bar';
 
@@ -97,27 +108,29 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const pendingReviewItems = pendingSummary.allEndedPending;
   const availableReviewsCount = pendingSummary.availableNow.length;
 
-  // Upcoming confirmed shows scoped by role
-  const upcomingShows = liveShows.filter((show) => !show.isCompleted);
+  // Upcoming confirmed shows scoped strictly to active Bar or Musician
+  const upcomingShows = liveShows.filter((show) => {
+    if (show.isCompleted) return false;
+    if (isBar && currentVenue) return show.venueId === currentVenue.id;
+    if (!isBar && currentMusician) return show.musicianId === currentMusician.id;
+    return true;
+  });
 
-  // Bar-only: incoming slot bids for Bar's event proposals
-  const barVenueIds = new Set([
-    ...(currentVenue ? [currentVenue.id] : []),
-    ...venues.map((v) => v.id),
-  ]);
+  // Bar-only: incoming slot bids scoped strictly to active Bar's event proposals
+  const activeBarId = currentVenue?.id;
   const incomingBarBids = slotBids.filter((bid) => {
     if (bid.retracted) return false;
     const ev = eventProposals.find((e) => e.id === bid.eventId);
     if (!ev) return false;
-    return barVenueIds.size === 0 || barVenueIds.has(ev.venueId);
+    return !activeBarId || ev.venueId === activeBarId;
   });
   const pendingBarBidsCount = incomingBarBids.filter(
     (b) => b.status === 'pendiente_bar' || b.status === 'contraoferta_musico'
   ).length;
 
-  // Bar-only: legacy open-call applications received by Bar venues
+  // Bar-only: legacy open-call applications scoped strictly to active Bar
   const incomingOpenCallApps = openCalls
-    .filter((call) => barVenueIds.size === 0 || barVenueIds.has(call.venueId))
+    .filter((call) => !activeBarId || call.venueId === activeBarId)
     .flatMap((call) =>
       call.applications.map((app) => ({
         ...app,
@@ -448,18 +461,25 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                       </div>
                     )}
 
-                    {bid.status !== 'aceptada' && bid.status !== 'rechazada' && (
+                    {bid.status !== 'aceptada' && bid.status !== 'rechazada' && !bid.retracted && (
                       <div className="space-y-2 pt-2 border-t border-slate-800">
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            onClick={() =>
-                              respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')
-                            }
-                            className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
-                          >
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                            <span>Aceptar Propuesta</span>
-                          </button>
+                          {(bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') ? (
+                            <button
+                              onClick={() =>
+                                respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')
+                              }
+                              className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>Aceptar Propuesta</span>
+                            </button>
+                          ) : (
+                            <span className="flex-1 py-2 px-3 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-semibold rounded-lg text-[11px] flex items-center justify-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Esperando respuesta del músico</span>
+                            </span>
+                          )}
 
                           <button
                             onClick={() => {
@@ -469,7 +489,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             }}
                             className="py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
                           >
-                            Contraproponer
+                            {bid.status === 'contraoferta_bar' ? 'Ajustar Contraoferta' : 'Contraproponer'}
                           </button>
 
                           <button
@@ -503,18 +523,26 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             />
                             <button
                               onClick={() => {
-                                respondToSlotBid(
+                                const res = respondToSlotBid(
                                   bid.id,
                                   'counter',
                                   counterAmount,
                                   counterNote || 'Contraoferta enviada por el bar.'
                                 );
+                                if (!res.ok) {
+                                  setNegError(res.message || 'No se pudo enviar la contraoferta.');
+                                  return;
+                                }
+                                setNegError(null);
                                 setCounterInputId(null);
                               }}
                               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs"
                             >
                               Enviar Contraoferta al Músico
                             </button>
+                            {negError && (
+                              <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -837,14 +865,19 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                 const hoursRemaining = (eventDateTime - now) / (1000 * 60 * 60);
                 const canRetract = hoursRemaining >= 24 && !bid.retracted && bid.status !== 'rechazada';
 
-                // Check clash with another active bid of this musician
-                const hasClash = mySlotBids.some(
-                  (other) =>
-                    other.id !== bid.id &&
-                    !other.retracted &&
-                    other.status !== 'rechazada' &&
-                    eventProposals.find((ev) => ev.id === other.eventId)?.date === eventDateStr
-                );
+                // Check overlapping time clash with another active bid or confirmed show of this musician
+                const hasClash =
+                  isActiveSlotBid(bid) &&
+                  Boolean(event) &&
+                  Boolean(slot) &&
+                  detectMusicianDateClashes({
+                    musicianId: bid.musicianId,
+                    targetEvent: event!,
+                    targetSlot: slot!,
+                    slotBids,
+                    eventProposals,
+                    liveShows,
+                  }).length > 0;
 
                 return (
                   <div
@@ -901,6 +934,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             ? 'Aceptada por el Bar'
                             : bid.status === 'contraoferta_bar'
                             ? 'Contraoferta del Bar'
+                            : bid.status === 'contraoferta_musico'
+                            ? 'Contraoferta Enviada'
                             : bid.status === 'rechazada'
                             ? 'Rechazada'
                             : 'Pendiente de Respuesta'}
@@ -932,73 +967,153 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                       <div>Pedís al bar: <strong className="text-slate-300">{bid.equipmentNeeded}</strong></div>
                     </div>
 
-                    {/* Reminder & Retract Actions */}
+                    {/* Reminder, Counter-offer & Retract Actions */}
                     {!bid.retracted && bid.status !== 'rechazada' && (
-                      <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-                        {/* Reminder Button */}
-                        {bid.status === 'pendiente_bar' && (
-                          <button
-                            onClick={() => {
-                              const res = sendMusicianProposalReminder(bid.id);
-                              setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors"
-                          >
-                            <Bell className="w-3.5 h-3.5" />
-                            <span>
-                              {bid.reminderCount
-                                ? `Recordatorio enviado (${bid.reminderCount})`
-                                : 'Enviar Recordatorio al Bar'}
-                            </span>
-                          </button>
-                        )}
-
-                        {/* Counteroffer responses */}
-                        {bid.status === 'contraoferta_bar' && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-cyan-300 font-bold">
-                              Contraoferta: {formatARS(bid.proposedCachetARS)}
-                            </span>
-                            <button
-                              onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Contraoferta aceptada por el músico.')}
-                              className="px-3 py-1 bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs"
-                            >
-                              Aceptar
-                            </button>
-                            <button
-                              onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Rechazada por el músico.')}
-                              className="px-2.5 py-1 bg-slate-800 text-rose-400 rounded-lg text-xs"
-                            >
-                              Rechazar
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Retraction button enforcing 24h rule */}
-                        <div>
-                          {canRetract ? (
+                      <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          {/* Reminder Button */}
+                          {(bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') && (
                             <button
                               onClick={() => {
-                                if (window.confirm('¿Seguro que querés retractarte de esta propuesta? El slot quedará libre para otros músicos.')) {
-                                  const res = retractMusicianSlotBid(bid.id);
-                                  setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
-                                }
+                                const res = sendMusicianProposalReminder(bid.id);
+                                setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
                               }}
-                              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/30 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
+                              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors"
                             >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Retractarme (hasta 24hs antes)</span>
+                              <Bell className="w-3.5 h-3.5" />
+                              <span>
+                                {bid.reminderCount
+                                  ? `Recordatorio enviado (${bid.reminderCount})`
+                                  : 'Enviar Recordatorio al Bar'}
+                              </span>
                             </button>
-                          ) : (
-                            <span
-                              className="text-[11px] text-slate-500 italic flex items-center gap-1 cursor-not-allowed"
-                              title="La app prohíbe retractarse con menos de 24 horas de antelación al inicio del show"
-                            >
-                              <Clock className="w-3.5 h-3.5 text-slate-600" />
-                              <span>Retracción no disponible (faltan &lt; 24hs para el show)</span>
-                            </span>
                           )}
+
+                          {/* Counteroffer responses for Musician */}
+                          {bid.status === 'contraoferta_bar' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-cyan-300 font-bold">
+                                Contraoferta: {formatARS(bid.proposedCachetARS)}
+                              </span>
+                              <button
+                                onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Contraoferta aceptada por el músico.')}
+                                className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs"
+                              >
+                                Aceptar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCounterAmount(bid.proposedCachetARS);
+                                  setCounterNote('');
+                                  setCounterInputId(counterInputId === bid.id ? null : bid.id);
+                                }}
+                                className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
+                              >
+                                Contraproponer
+                              </button>
+                              <button
+                                onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Rechazada por el músico.')}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-rose-400 rounded-lg text-xs"
+                              >
+                                Rechazar
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Retraction button enforcing 24h rule (no window.confirm) */}
+                          <div>
+                            {canRetract ? (
+                              confirmRetractBidId === bid.id ? (
+                                <div className="flex items-center gap-1.5 bg-rose-950/50 border border-rose-500/40 rounded-xl px-2.5 py-1">
+                                  <span className="text-[11px] text-rose-200 font-semibold">
+                                    ¿Liberar horario?
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const res = retractMusicianSlotBid(bid.id);
+                                      setRetractionFeedback({ id: bid.id, msg: res.message, success: res.success });
+                                      setConfirmRetractBidId(null);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-[11px]"
+                                  >
+                                    Confirmar Retracción
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmRetractBidId(null)}
+                                    className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 text-[11px]"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmRetractBidId(bid.id)}
+                                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/30 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Retractarme (hasta 24hs antes)</span>
+                                </button>
+                              )
+                            ) : (
+                              <span
+                                className="text-[11px] text-slate-500 italic flex items-center gap-1 cursor-not-allowed"
+                                title="La app prohíbe retractarse con menos de 24 horas de antelación al inicio del show"
+                              >
+                                <Clock className="w-3.5 h-3.5 text-slate-600" />
+                                <span>Retracción no disponible (faltan &lt; 24hs para el show)</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
+
+                        {bid.status === 'contraoferta_bar' && counterInputId === bid.id && (
+                          <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                              <input
+                                type="number"
+                                step={5000}
+                                min={1000}
+                                value={counterAmount}
+                                onChange={(e) => setCounterAmount(Number(e.target.value))}
+                                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
+                              />
+                            </div>
+                            <input
+                              type="text"
+                              placeholder="Nota de contrapropuesta para el bar..."
+                              value={counterNote}
+                              onChange={(e) => setCounterNote(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const res = respondToSlotBid(
+                                  bid.id,
+                                  'counter',
+                                  counterAmount,
+                                  counterNote || 'Contraoferta enviada por el músico.'
+                                );
+                                if (!res.ok) {
+                                  setNegError(res.message || 'No se pudo enviar la contraoferta.');
+                                  return;
+                                }
+                                setNegError(null);
+                                setCounterInputId(null);
+                              }}
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs"
+                            >
+                              Enviar Contraoferta al Bar
+                            </button>
+                            {negError && (
+                              <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

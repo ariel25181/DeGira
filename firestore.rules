@@ -143,7 +143,7 @@ service cloud.firestore {
         && data.musicianId is string && data.musicianId.size() >= 1 && data.musicianId.size() <= 128
         && data.musicianName is string && data.musicianName.size() >= 1 && data.musicianName.size() <= 140
         && isOptionalBoundedString(data, 'musicianAvatar', 600)
-        && data.proposedCachetARS is number && data.proposedCachetARS >= 0
+        && data.proposedCachetARS is number && data.proposedCachetARS > 0
         && data.musiciansCount is number && data.musiciansCount >= 1 && data.musiciansCount <= 30
         && data.equipmentProvided is string && data.equipmentProvided.size() <= 400
         && data.equipmentNeeded is string && data.equipmentNeeded.size() <= 400
@@ -263,22 +263,12 @@ service cloud.firestore {
         && incoming().ownerUid == existing().ownerUid
         && incoming().createdAtTimestamp == existing().createdAtTimestamp
         && incoming().updatedAtTimestamp == request.time
-        && (
-          (
-            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().id))
-            && incoming().diff(existing()).affectedKeys().hasOnly([
-              'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
-              'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
-              'venueCbuAlias', 'defaultRiderTemplate', 'updatedAtTimestamp'
-            ])
-          )
-          ||
-          (
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'rating', 'reviewCount', 'ratingBreakdown', 'updatedAtTimestamp'
-            ])
-          )
-        );
+        && (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().id))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
+          'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
+          'venueCbuAlias', 'defaultRiderTemplate', 'updatedAtTimestamp'
+        ]);
     }
 
     // Event Proposals
@@ -312,19 +302,25 @@ service cloud.firestore {
             ])
           )
           ||
-          // Action 2: Musician bid/retract syncs slot negotiation status (cannot self-publish or cancel)
+          // Action 2: Musician bid/retract syncs slot negotiation status (cannot self-publish, cancel, or add/remove slots)
           (
-            existing().status in ['propuesta', 'para_publicar']
-            && incoming().status in ['propuesta', 'para_publicar']
+            (
+              (existing().status in ['propuesta', 'para_publicar'] && incoming().status in ['propuesta', 'para_publicar'])
+              || (existing().status == 'publicada' && incoming().status in ['propuesta', 'publicada'])
+            )
+            && incoming().slots.size() == existing().slots.size()
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'slots', 'status', 'updatedAtTimestamp'
             ])
           )
           ||
-          // Action 3: Spectator reservation/waitlist capacity update (only on published/sold-out shows)
+          // Action 3: Spectator reservation/waitlist capacity update (only on published/sold-out shows, consistent capacity/status)
           (
             existing().status in ['publicada', 'agotada']
-            && incoming().status in ['publicada', 'agotada']
+            && (
+              (incoming().status == 'agotada' && incoming().remainingCapacity == 0)
+              || (incoming().status == 'publicada' && incoming().remainingCapacity > 0)
+            )
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'remainingCapacity', 'status', 'waitlist', 'updatedAtTimestamp'
             ])
@@ -344,12 +340,20 @@ service cloud.firestore {
         && incoming().status in ['pendiente_bar', 'contraoferta_musico']
         && incoming().createdAtTimestamp == request.time
         && incoming().updatedAtTimestamp == request.time
-        && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId));
+        && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId))
+        && get(/databases/$(database)/documents/eventProposals/$(incoming().eventId)).data.status in ['propuesta', 'para_publicar'];
       allow update: if isSignedIn()
         && isValidId(bidId)
         && isValidSlotBid(incoming())
-        && existing().status != 'aceptada'
         && existing().status != 'rechazada'
+        && (
+          existing().status != 'aceptada'
+          || (
+            incoming().retracted == true
+            && incoming().status == 'rechazada'
+            && incoming().proposedCachetARS == existing().proposedCachetARS
+          )
+        )
         && incoming().id == existing().id
         && incoming().eventId == existing().eventId
         && incoming().slotId == existing().slotId
@@ -358,6 +362,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().createdAtTimestamp == existing().createdAtTimestamp
         && incoming().updatedAtTimestamp == request.time
+        && get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.status != 'cancelada'
         && (
           // Action 1: Musician updates / sends reminder / counters / retracts own bid
           // Musician can only set 'aceptada' if replying to a Bar counter-offer ('contraoferta_bar')
@@ -373,13 +378,18 @@ service cloud.firestore {
             ])
           )
           ||
-          // Action 2: Event host Bar accepts, rejects, or counter-offers
+          // Action 2: Event host Bar accepts, rejects, or counter-offers (only active bids on open events; Bar cannot self-accept its own contraoferta_bar)
           (
-            (
+            existing().retracted != true
+            && get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.status in ['propuesta', 'para_publicar']
+            && (
               get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.ownerUid == request.auth.uid
               || isDemoVenueId(get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.venueId)
             )
-            && incoming().status in ['contraoferta_bar', 'aceptada', 'rechazada']
+            && (
+              incoming().status in ['contraoferta_bar', 'rechazada']
+              || (incoming().status == 'aceptada' && existing().status in ['pendiente_bar', 'contraoferta_musico'])
+            )
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'status', 'proposedCachetARS', 'history', 'updatedAtTimestamp'
             ])
@@ -444,6 +454,7 @@ service cloud.firestore {
               || isDemoVenueId(existing().venueId)
               || get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.ownerUid == request.auth.uid
             )
+            && incoming().status in ['comprobante_subido', 'confirmada', 'cancelada']
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'status', 'qrTicketCode', 'qrEmailSent', 'checkInStatus',
               'checkedInAt', 'rejectionReason', 'updatedAtTimestamp'

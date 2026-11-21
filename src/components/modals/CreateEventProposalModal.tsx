@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Calendar,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { EventSlot, MusicGenre, NeighborhoodBA } from '../../types/index.ts';
+import { makeUniqueId } from '../../utils/slotBidding.ts';
 
 interface CreateEventProposalModalProps {
   isOpen: boolean;
@@ -78,6 +79,13 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
     { id: 'slot-2', startTime: '22:45', endTime: '00:15', requiredMusicians: 3 },
   ]);
 
+  useEffect(() => {
+    if (isOpen && currentVenue?.id) {
+      setSelectedVenueId(currentVenue.id);
+      setIsCreatingNewVenue(false);
+    }
+  }, [isOpen, currentVenue?.id]);
+
   if (!isOpen) return null;
 
   const toggleGenre = (genre: MusicGenre) => {
@@ -87,7 +95,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
   };
 
   const addSlot = () => {
-    const newId = `slot-${Date.now()}`;
+    const newId = makeUniqueId('slot');
     setSlots((prev) => [
       ...prev,
       { id: newId, startTime: '00:30', endTime: '01:30', requiredMusicians: 1 },

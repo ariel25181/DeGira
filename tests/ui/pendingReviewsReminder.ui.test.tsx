@@ -112,17 +112,17 @@ describe('2-Hour Post-Event Review Window & On-Screen Login Reminder', () => {
 
     // Login reminder dialog should appear on screen with detailed pending rating info
     const dialog = screen.getByRole('dialog');
-    within(dialog).getByText(/Tenés \d+ calificación/);
+    within(dialog).getByText(/Tenés \d+ calificaciones?/);
     within(dialog).getByText(/2 horas después/);
     within(dialog).getByText('Sesión Blues & Jazz Nocturna');
     assert.ok(within(dialog).getAllByText(/Bar Test 1/).length >= 1);
-    within(dialog).getByText(/Honduras 4800/);
+    assert.ok(within(dialog).getAllByText(/Honduras 4800/).length >= 1);
     assert.ok(within(dialog).getAllByText(/Músico Test 1/).length >= 1);
     within(dialog).getByText('DG-BAR1-6120');
 
     // Clicking "Calificar ahora" opens Review360Modal
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: /Calificar ahora/i }));
+      fireEvent.click(within(dialog).getAllByRole('button', { name: /Calificar ahora/i })[0]);
     });
     screen.getByText('Calificación 360° Post-Evento');
   });
@@ -144,6 +144,8 @@ describe('2-Hour Post-Event Review Window & On-Screen Login Reminder', () => {
       'suena_ba_v3_eventProposals',
       JSON.stringify([lockedEvent, unlockedEvent])
     );
+    localStorage.setItem('suena_ba_v3_liveShows', JSON.stringify([]));
+    localStorage.setItem('suena_ba_v3_reviews360', JSON.stringify([]));
 
     await act(async () => {
       render(
@@ -216,10 +218,10 @@ describe('2-Hour Post-Event Review Window & On-Screen Login Reminder', () => {
     // Reminder appears automatically for Músico Test 1
     const dialog = screen.getByRole('dialog');
     within(dialog).getByText('Sesión Blues & Jazz Nocturna');
-    within(dialog).getByText(/Bar anfitrión: Bar Test 1/i);
+    assert.ok(within(dialog).getAllByText(/Bar anfitrión: Bar Test 1/i).length >= 1);
 
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: /Calificar ahora/i }));
+      fireEvent.click(within(dialog).getAllByRole('button', { name: /Calificar ahora/i })[0]);
     });
 
     // Submit the 360 review

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Radio,
   Plus,
@@ -68,6 +68,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   const [counterInputId, setCounterInputId] = useState<string | null>(null);
   const [counterAmount, setCounterAmount] = useState<number>(75000);
   const [counterNote, setCounterNote] = useState<string>('');
+  const [negError, setNegError] = useState<string | null>(null);
 
   // Expandable proposal details
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
@@ -75,8 +76,16 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   // Status filter for bar
   const [barStatusFilter, setBarStatusFilter] = useState<'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada'>('todos');
 
-  // Visibilidad estricta por rol:
-  // - Bar: todas sus fechas o según filtro
+  useEffect(() => {
+    setCounterInputId(null);
+    setCounterNote('');
+    setNegError(null);
+    setBiddingEvent(null);
+    setBiddingSlot(null);
+  }, [role, currentVenue?.id, currentMusician?.id]);
+
+  // Visibilidad estricta por rol y bar activo:
+  // - Bar: únicamente sus propias fechas (currentVenue.id) según filtro
   // - Músico: propuestas y fechas 'para_publicar' que aún tienen horarios libres o donde tiene propuesta activa
   const visibleProposals = eventProposals.filter((p) =>
     isEventVisibleInConvocatorias({
@@ -85,6 +94,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
       barStatusFilter,
       slotBids,
       musicianId: currentMusician?.id,
+      viewerVenueId: role === 'bar' ? currentVenue?.id : undefined,
     })
   );
 
@@ -209,6 +219,8 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                   bid: b,
                   viewerRole: role,
                   viewerMusicianId: currentMusician?.id,
+                  viewerVenueId: role === 'bar' ? currentVenue?.id : undefined,
+                  parentEvent: proposal,
                 })
             );
             const hasAtLeastOneSlotCovered = proposal.slots.some((s) => s.assignedMusicianId || s.status === 'confirmado');
@@ -572,22 +584,33 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                             </div>
 
                             {/* Negotiation Actions for Bar */}
-                            {role === 'bar' && bid.status !== 'aceptada' && bid.status !== 'rechazada' && (
+                            {role === 'bar' && bid.status !== 'aceptada' && bid.status !== 'rechazada' && !bid.retracted && (
                               <div className="space-y-2 pt-1 border-t border-slate-800">
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')}
-                                    className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
-                                  >
-                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                    <span>Aceptar Propuesta</span>
-                                  </button>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {(bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') ? (
+                                    <button
+                                      onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')}
+                                      className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
+                                    >
+                                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      <span>Aceptar Propuesta</span>
+                                    </button>
+                                  ) : (
+                                    <span className="flex-1 py-1.5 px-3 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-semibold rounded-lg text-[11px] flex items-center justify-center gap-1">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      <span>Esperando respuesta del músico</span>
+                                    </span>
+                                  )}
 
                                   <button
-                                    onClick={() => setCounterInputId(isCounteringThis ? null : bid.id)}
+                                    onClick={() => {
+                                      setCounterAmount(bid.proposedCachetARS);
+                                      setCounterNote('');
+                                      setCounterInputId(isCounteringThis ? null : bid.id);
+                                    }}
                                     className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
                                   >
-                                    Contraproponer
+                                    {bid.status === 'contraoferta_bar' ? 'Ajustar Contraoferta' : 'Contraproponer'}
                                   </button>
 
                                   <button
@@ -605,6 +628,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                       <input
                                         type="number"
                                         step={5000}
+                                        min={1000}
                                         value={counterAmount}
                                         onChange={(e) => setCounterAmount(Number(e.target.value))}
                                         className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
@@ -619,34 +643,94 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     />
                                     <button
                                       onClick={() => {
-                                        respondToSlotBid(bid.id, 'counter', counterAmount, counterNote || 'Contraoferta enviada.');
+                                        const res = respondToSlotBid(bid.id, 'counter', counterAmount, counterNote || 'Contraoferta enviada.');
+                                        if (!res.ok) {
+                                          setNegError(res.message || 'No se pudo enviar la contraoferta.');
+                                          return;
+                                        }
+                                        setNegError(null);
                                         setCounterInputId(null);
                                       }}
                                       className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
                                     >
                                       Enviar Contraoferta al Músico
                                     </button>
+                                    {negError && (
+                                      <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                                    )}
                                   </div>
                                 )}
                               </div>
                             )}
 
                             {/* Negotiation Actions for Musician */}
-                            {role === 'musico' && bid.status === 'contraoferta_bar' && (
-                              <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
-                                <button
-                                  onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Músico acepta contraoferta.')}
-                                  className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
-                                >
-                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                  <span>Aceptar Contraoferta del Bar ({formatARS(bid.proposedCachetARS)})</span>
-                                </button>
-                                <button
-                                  onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Músico no acepta contraoferta.')}
-                                  className="py-1.5 px-2.5 bg-slate-800 text-rose-400 rounded-lg text-xs"
-                                >
-                                  Rechazar
-                                </button>
+                            {role === 'musico' && bid.status === 'contraoferta_bar' && !bid.retracted && (
+                              <div className="space-y-2 pt-1 border-t border-slate-800">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Músico acepta contraoferta.')}
+                                    className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
+                                  >
+                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                    <span>Aceptar Contraoferta del Bar ({formatARS(bid.proposedCachetARS)})</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setCounterAmount(bid.proposedCachetARS);
+                                      setCounterNote('');
+                                      setCounterInputId(isCounteringThis ? null : bid.id);
+                                    }}
+                                    className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
+                                  >
+                                    Contraproponer
+                                  </button>
+                                  <button
+                                    onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Músico no acepta contraoferta.')}
+                                    className="py-1.5 px-2.5 bg-slate-800 text-rose-400 rounded-lg text-xs"
+                                  >
+                                    Rechazar
+                                  </button>
+                                </div>
+
+                                {isCounteringThis && (
+                                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                      <input
+                                        type="number"
+                                        step={5000}
+                                        min={1000}
+                                        value={counterAmount}
+                                        onChange={(e) => setCounterAmount(Number(e.target.value))}
+                                        className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
+                                      />
+                                    </div>
+                                    <input
+                                      type="text"
+                                      placeholder="Nota de contrapropuesta para el bar..."
+                                      value={counterNote}
+                                      onChange={(e) => setCounterNote(e.target.value)}
+                                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const res = respondToSlotBid(bid.id, 'counter', counterAmount, counterNote || 'Contraoferta enviada por el músico.');
+                                        if (!res.ok) {
+                                          setNegError(res.message || 'No se pudo enviar la contraoferta.');
+                                          return;
+                                        }
+                                        setNegError(null);
+                                        setCounterInputId(null);
+                                      }}
+                                      className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
+                                    >
+                                      Enviar Contraoferta al Bar
+                                    </button>
+                                    {negError && (
+                                      <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

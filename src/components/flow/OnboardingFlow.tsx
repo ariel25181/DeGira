@@ -28,6 +28,7 @@ import {
   Cloud,
   CloudOff,
   Loader2,
+  GitBranch,
 } from 'lucide-react';
 import { useSession } from '../../context/SessionContext.tsx';
 import { useApp } from '../../context/AppContext.tsx';
@@ -51,6 +52,7 @@ interface OnboardingFlowProps {
   onOpenFeedback?: () => void;
   onOpenInstall?: () => void;
   onClose?: () => void;
+  onOpenGithubPush?: () => void;
 }
 
 type FlowStep = 'profile_select' | 'auth' | 'tour';
@@ -63,6 +65,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   onOpenFeedback,
   onOpenInstall,
   onClose,
+  onOpenGithubPush,
 }) => {
   const { signIn, signUp, state } = useSession();
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -314,6 +317,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   title="Reportar bug, sugerir mejora o dar feedback"
                 >
                   <Wrench className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onOpenGithubPush && (
+                <button
+                  type="button"
+                  data-testid="onboarding-github-push-btn"
+                  onClick={onOpenGithubPush}
+                  aria-label="Push a GitHub"
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 text-[11px] font-bold transition-all active:scale-95"
+                  title="Subir cambios a GitHub (pedirá tu token)"
+                >
+                  <GitBranch className="w-3 h-3 stroke-[2.2]" />
+                  <span>Push</span>
                 </button>
               )}
 

@@ -19,7 +19,7 @@ import {
 import { useApp } from '../../context/AppContext.tsx';
 import { EventProposal, EventSlot, MusicianInputChannel, MusicianMusicLinks } from '../../types/index.ts';
 import { formatARS } from '../../utils/bookingLogic.ts';
-import { canSubmitBidForSlot } from '../../utils/slotBidding.ts';
+import { canSubmitBidForSlot, detectMusicianDateClashes } from '../../utils/slotBidding.ts';
 
 interface MusicianBidModalProps {
   isOpen: boolean;
@@ -54,16 +54,6 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
   const [sentSuccess, setSentSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen && event && slot) {
-      setCounterCachetARS(event.baseCachetARS || 70000);
-      setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
-      setClashConfirmedByUser(false);
-      setSubmitError(null);
-      setSentSuccess(false);
-    }
-  }, [isOpen, event?.id, slot?.id]);
-
   // Music Streaming links (No video upload, only music app links)
   const [spotifyUrl, setSpotifyUrl] = useState<string>(
     currentMusician?.musicLinks?.spotifyUrl || 'https://open.spotify.com/artist/degira'
@@ -86,6 +76,48 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
         ];
   });
 
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && event && slot) {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      setCachetAgreement('agree');
+      setCounterCachetARS(event.baseCachetARS || 70000);
+      setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
+      setNote('');
+      setClashConfirmedByUser(false);
+      setSubmitError(null);
+      setSentSuccess(false);
+      setSpotifyUrl(
+        currentMusician?.musicLinks?.spotifyUrl || 'https://open.spotify.com/artist/degira'
+      );
+      setYoutubeUrl(
+        currentMusician?.musicLinks?.youtubeUrl ||
+          currentMusician?.youtubeSampleUrl ||
+          'https://youtube.com/@musica'
+      );
+      setBandcampUrl(currentMusician?.musicLinks?.bandcampUrl || '');
+      setInputList(
+        currentMusician?.defaultInputList && currentMusician.defaultInputList.length > 0
+          ? currentMusician.defaultInputList
+          : [
+              { channel: 1, instrument: 'Voz Principal', micOrDI: 'Micrófono', notes: 'Shure Beta 58' },
+              { channel: 2, instrument: 'Guitarra Acústica', micOrDI: 'Caja Directa (DI)', notes: 'XLR balanceado' },
+              { channel: 3, instrument: 'Bajo', micOrDI: 'Caja Directa (DI)', notes: 'Línea directa' },
+            ]
+      );
+    }
+  }, [isOpen, event?.id, slot?.id, currentMusician?.id]);
+
   if (!isOpen || !event || !slot) return null;
 
   const addInputChannel = () => {
@@ -106,69 +138,16 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
     );
   };
 
-  const toMinutes = (timeStr: string) => {
-    const [h, m] = (timeStr || '00:00').split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
-
-  const timesOverlap = (startA: string, endA: string, startB: string, endB: string) => {
-    const a1 = toMinutes(startA);
-    let a2 = toMinutes(endA);
-    if (a2 <= a1) a2 += 24 * 60; // cruce de medianoche
-
-    const b1 = toMinutes(startB);
-    let b2 = toMinutes(endB);
-    if (b2 <= b1) b2 += 24 * 60;
-
-    return a1 < b2 && a2 > b1;
-  };
-
-  const detectedClashes: Array<{
-    title: string;
-    venueName: string;
-    startTime: string;
-    endTime: string;
-    status: string;
-  }> = [];
-
-  slotBids.forEach((otherBid) => {
-    if (
-      otherBid.musicianId === currentMusician?.id &&
-      !otherBid.retracted &&
-      otherBid.status !== 'rechazada'
-    ) {
-      const otherEv = eventProposals.find((e) => e.id === otherBid.eventId);
-      if (otherEv && otherEv.date === event.date) {
-        const otherSlot = otherEv.slots.find((s) => s.id === otherBid.slotId);
-        if (otherSlot && (otherEv.id !== event.id || otherSlot.id !== slot.id)) {
-          if (timesOverlap(slot.startTime, slot.endTime, otherSlot.startTime, otherSlot.endTime)) {
-            detectedClashes.push({
-              title: otherEv.title,
-              venueName: otherEv.venueName,
-              startTime: otherSlot.startTime,
-              endTime: otherSlot.endTime,
-              status: otherBid.status === 'aceptada' ? 'Aceptada' : 'Propuesta pendiente',
-            });
-          }
-        }
-      }
-    }
-  });
-
-  liveShows.forEach((show) => {
-    if (show.musicianId === currentMusician?.id && show.date === event.date) {
-      const showStart = show.time.split(' ')[0] || '21:00';
-      if (timesOverlap(slot.startTime, slot.endTime, showStart, '23:59')) {
-        detectedClashes.push({
-          title: `${show.musicianName} en vivo`,
-          venueName: show.venueName,
-          startTime: showStart,
-          endTime: '23:59',
-          status: 'Fecha Confirmada',
-        });
-      }
-    }
-  });
+  const detectedClashes = currentMusician
+    ? detectMusicianDateClashes({
+        musicianId: currentMusician.id,
+        targetEvent: event,
+        targetSlot: slot,
+        slotBids,
+        eventProposals,
+        liveShows,
+      })
+    : [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,7 +196,8 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
     }
 
     setSentSuccess(true);
-    setTimeout(() => {
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
       setSentSuccess(false);
       onClose();
     }, 1600);
