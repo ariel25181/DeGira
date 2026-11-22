@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Star, CheckCircle, MessageSquare, ShieldCheck, X, Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Star, CheckCircle, MessageSquare, ShieldCheck, X, Lock, ArrowRight } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Review } from '../../types/index.ts';
 import { formatDateBA } from '../../utils/bookingLogic.ts';
-import { getEventEndTimestampMs, getReviewAvailability } from '../../utils/reviewEligibility.ts';
+import { getEventEndTimestampMs, getReviewAvailability, PendingReviewItem } from '../../utils/reviewEligibility.ts';
 
 interface ReviewModalProps {
   isOpen: boolean;
@@ -16,6 +16,10 @@ interface ReviewModalProps {
   showIdToComplete?: string;
   showStartTime?: string;
   showEndTime?: string;
+  remainingPendingCount?: number;
+  nextPendingItem?: PendingReviewItem | null;
+  onContinueNext?: (item: PendingReviewItem) => void;
+  onOpenAllPending?: () => void;
 }
 
 export const ReviewModal: React.FC<ReviewModalProps> = ({
@@ -29,12 +33,17 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   showIdToComplete,
   showStartTime,
   showEndTime,
+  remainingPendingCount = 0,
+  nextPendingItem = null,
+  onContinueNext,
+  onOpenAllPending,
 }) => {
   const { currentMusician, currentVenue, submitReview } = useApp();
 
   const [overallRating, setOverallRating] = useState<number>(5);
   const [comment, setComment] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [submitted, setSubmitted] = useState<boolean>(false);
 
   // Criteria for Venue (reviewed by Musician)
   const [soundQuality, setSoundQuality] = useState<number>(5);
@@ -47,6 +56,21 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   const [liveSound, setLiveSound] = useState<number>(5);
   const [crowdDrawing, setCrowdDrawing] = useState<number>(5);
   const [professionalism, setProfessionalism] = useState<number>(5);
+
+  useEffect(() => {
+    setSubmitted(false);
+    setOverallRating(5);
+    setComment('');
+    setSelectedTags([]);
+    setSoundQuality(5);
+    setPaymentReliability(5);
+    setHospitality(5);
+    setRespect(5);
+    setPunctuality(5);
+    setLiveSound(5);
+    setCrowdDrawing(5);
+    setProfessionalism(5);
+  }, [isOpen, showIdToComplete, targetId, showDate]);
 
   if (!isOpen) return null;
 
@@ -129,7 +153,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       showIdToComplete
     );
 
-    onClose();
+    setSubmitted(true);
   };
 
   return (
@@ -161,6 +185,86 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-6 flex-1 text-slate-200">
+          {submitted ? (
+            <div className="text-center py-6 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
+                <CheckCircle className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-base font-black text-slate-100">
+                  ¡Calificación Registrada!
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Tu reseña ya se publicó en el perfil de <strong className="text-slate-200">{targetName}</strong>.
+                </p>
+              </div>
+
+              {remainingPendingCount > 0 && nextPendingItem ? (
+                <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/40 text-left space-y-3">
+                  <div className="space-y-1">
+                    <span className="inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {remainingPendingCount} {remainingPendingCount === 1 ? 'pendiente' : 'pendientes'}
+                    </span>
+                    <p className="text-sm font-bold text-slate-100">
+                      ¿Querés seguir calificando los shows pendientes?
+                    </p>
+                    <p className="text-xs text-slate-300">
+                      Todavía tenés {remainingPendingCount}{' '}
+                      {remainingPendingCount === 1 ? 'calificación habilitada' : 'calificaciones habilitadas'}. Siguiente:{' '}
+                      <strong className="text-amber-300">{nextPendingItem.title}</strong>.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    {onContinueNext && (
+                      <button
+                        type="button"
+                        data-testid="continue-next-review-btn"
+                        onClick={() => onContinueNext(nextPendingItem)}
+                        className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20"
+                      >
+                        <span>Sí, seguir calificando</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onOpenAllPending && (
+                      <button
+                        type="button"
+                        data-testid="view-all-pending-reviews-btn"
+                        onClick={onOpenAllPending}
+                        className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-colors"
+                      >
+                        Ver todos ({remainingPendingCount})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="finish-review-later-btn"
+                      onClick={onClose}
+                      className="px-3 py-2.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-bold text-xs transition-colors"
+                    >
+                      Más tarde
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-emerald-300">
+                    ¡Al día! Ya no te quedan calificaciones pendientes.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="review-done-btn"
+                    onClick={onClose}
+                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-colors"
+                  >
+                    Listo
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           {!availability.isAvailable && (
             <div className="bg-cyan-950/40 border border-cyan-500/40 rounded-xl p-3.5 flex items-start space-x-3 text-xs text-cyan-200 leading-relaxed">
               <Lock className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
@@ -462,6 +566,8 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               )}
             </button>
           </div>
+            </>
+          )}
         </form>
       </div>
     </div>

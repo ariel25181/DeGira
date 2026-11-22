@@ -1143,6 +1143,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
 
         <div className="p-5 space-y-4">
+          {!viewingTarget && isVenue && venues.length > 1 && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              <label
+                htmlFor="profile-venue-switcher"
+                className="text-[11px] font-bold text-slate-300 shrink-0"
+              >
+                Local / Sala seleccionada:
+              </label>
+              <select
+                id="profile-venue-switcher"
+                data-testid="profile-venue-switcher"
+                value={venueProfile?.id || venues[0]?.id || ''}
+                onChange={(e) => setActiveVenueId(e.target.value)}
+                className="w-full sm:w-auto flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-100 focus:border-amber-500 outline-none"
+              >
+                {venues.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} ({v.neighborhood})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-extrabold text-slate-100 font-display">

@@ -363,6 +363,49 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               {step === 'tour' && `Paso 3 de 3 (${tourIndex + 1}/${tourSteps.length})`}
             </span>
           </div>
+
+          {/* Visible Cloud Sync strip on every Onboarding step */}
+          {connectCloudWithGoogle && (
+            <div
+              data-testid="onboarding-cloud-sync-bar"
+              className={`mt-2.5 px-3 py-2 rounded-xl border text-[11px] flex items-center justify-between gap-2 ${
+                firebaseUser
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-200'
+                  : 'bg-cyan-500/10 border-cyan-500/30 text-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {cloudSyncStatus === 'syncing' ? (
+                  <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin shrink-0" />
+                ) : firebaseUser ? (
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <CloudOff className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                )}
+                <span className="truncate font-medium">
+                  {cloudSyncStatus === 'syncing'
+                    ? 'Sincronizando nube compartida…'
+                    : firebaseUser
+                    ? `Nube sincronizada • ${firebaseUser.email || 'Google'}`
+                    : 'Modo local • Conectá Google para sincronizar entre celulares'}
+                </span>
+              </div>
+
+              {!firebaseUser && (
+                <button
+                  type="button"
+                  onClick={() => void connectCloudWithGoogle?.()}
+                  disabled={cloudSyncStatus === 'syncing'}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[10px] shrink-0 transition-all disabled:opacity-50"
+                >
+                  Conectar Nube
+                </button>
+              )}
+            </div>
+          )}
+          {cloudSyncError && (
+            <p className="mt-1.5 text-[10px] text-rose-300 leading-snug">{cloudSyncError}</p>
+          )}
         </div>
 
         {/* STEP 1: PERFIL SELECTION */}

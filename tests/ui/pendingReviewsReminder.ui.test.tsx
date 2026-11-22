@@ -232,4 +232,83 @@ describe('2-Hour Post-Event Review Window & On-Screen Login Reminder', () => {
 
     screen.getByText('¡Calificación 360° Registrada!');
   });
+
+  it('asks user whether to continue rating remaining pending shows sequentially (3 -> 2 -> 1 -> 0) until none remain', async () => {
+    const ev1 = makeDynamicEvent({ id: 'ev-seq-1', title: 'Show Pendiente Uno', endedMinutesAgo: 180 });
+    const ev2 = makeDynamicEvent({ id: 'ev-seq-2', title: 'Show Pendiente Dos', endedMinutesAgo: 200 });
+    const ev3 = makeDynamicEvent({ id: 'ev-seq-3', title: 'Show Pendiente Tres', endedMinutesAgo: 220 });
+
+    saveActiveSession({
+      role: 'bar',
+      userName: 'Bar Test 1',
+      userEmail: 'bar1@degira.com.ar',
+      remember24h: true,
+    });
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_eventProposals', JSON.stringify([ev1, ev2, ev3]));
+    localStorage.setItem('suena_ba_v3_liveShows', JSON.stringify([]));
+    localStorage.setItem('suena_ba_v3_reviews360', JSON.stringify([]));
+
+    await act(async () => {
+      render(<App />);
+    });
+
+    // Reminder shows 3 pending ratings
+    const dialog = screen.getByRole('dialog');
+    within(dialog).getByText(/Tenés 3 calificaciones/);
+
+    // Start rating Show #1
+    await act(async () => {
+      fireEvent.click(within(dialog).getAllByRole('button', { name: /Calificar ahora/i })[0]);
+    });
+    screen.getByText(/Show Pendiente Uno • Bar Test 1/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enviar Calificación Bilateral 360°/i }));
+    });
+
+    // Prompts whether to continue with 2 remaining
+    screen.getByText('¿Querés seguir calificando los shows pendientes?');
+    screen.getByText('2 pendientes');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue-next-review-btn'));
+    });
+
+    // Transitions cleanly to Show #2
+    screen.getByText(/Show Pendiente Dos • Bar Test 1/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enviar Calificación Bilateral 360°/i }));
+    });
+
+    // Prompts whether to continue with 1 remaining
+    screen.getByText('¿Querés seguir calificando los shows pendientes?');
+    screen.getByText('1 pendiente');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue-next-review-btn'));
+    });
+
+    // Transitions cleanly to Show #3
+    screen.getByText(/Show Pendiente Tres • Bar Test 1/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enviar Calificación Bilateral 360°/i }));
+    });
+
+    // Final confirmation: 0 remaining
+    screen.getByText('¡Al día! Ya no te quedan calificaciones pendientes.');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-done-btn'));
+    });
+  });
+
+  it('shows Cloud Sync banner immediately on Onboarding Step 1 so friends on other phones see Conectar Nube right away', async () => {
+    localStorage.clear();
+
+    await act(async () => {
+      render(<App />);
+    });
+
+    const syncBar = screen.getByTestId('onboarding-cloud-sync-bar');
+    within(syncBar).getByText(/Conectá Google para sincronizar entre celulares/i);
+    within(syncBar).getByRole('button', { name: /Conectar Nube/i });
+  });
 });

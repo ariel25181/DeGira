@@ -142,4 +142,114 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
     assert.strictEqual(screen.queryByText('Ver info del Bar'), null);
     assert.ok(screen.getAllByRole('button', { name: /Ver perfil del Músico/i }).length >= 1);
   });
+
+  it('allows Bar user to see hint and switch active venue to inspect synced events created in another local (e.g. La Subasta)', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem(
+      'suena_ba_v3_venues',
+      JSON.stringify([
+        {
+          id: 'venue-1',
+          name: 'Bar Test 1',
+          type: 'Club de Jazz',
+          address: 'Honduras 4800',
+          neighborhood: 'Palermo Soho',
+          coverPhoto: 'https://example.com/v1.jpg',
+          photos: ['https://example.com/v1.jpg'],
+          bio: 'Bar principal',
+          capacity: 90,
+          backline: ['Batería'],
+          acousticCharacteristics: 'Acústica',
+          hospitality: 'Cena',
+          rating: 4.9,
+          reviewCount: 5,
+          ratingBreakdown: { soundQuality: 5, paymentReliability: 5, hospitality: 5, respect: 5 },
+          reviews: [],
+        },
+        {
+          id: 'venue-la-subasta',
+          name: 'La Subasta',
+          type: 'Cervecería',
+          address: 'Av. Rivadavia 5200',
+          neighborhood: 'Caballito',
+          coverPhoto: 'https://example.com/subasta.jpg',
+          photos: ['https://example.com/subasta.jpg'],
+          bio: 'Bar sincronizado en Caballito',
+          capacity: 80,
+          backline: ['Escenario'],
+          acousticCharacteristics: 'Buena',
+          hospitality: 'Consumición',
+          rating: 5,
+          reviewCount: 0,
+          ratingBreakdown: { soundQuality: 5, paymentReliability: 5, hospitality: 5, respect: 5 },
+          reviews: [],
+        },
+      ])
+    );
+    localStorage.setItem(
+      'suena_ba_v3_eventProposals',
+      JSON.stringify([
+        {
+          id: 'ev-cantautores',
+          venueId: 'venue-la-subasta',
+          venueName: 'La Subasta',
+          venueAddress: 'Av. Rivadavia 5200',
+          venueNeighborhood: 'Caballito',
+          venuePhoto: 'https://example.com/subasta.jpg',
+          title: 'Noche de cantautores',
+          date: '2026-11-29',
+          startTime: '20:30',
+          endTime: '01:00',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 70000,
+          ticketPriceARS: 8000,
+          targetGenres: ['Acústico'],
+          slots: [
+            { id: 'slot-sub-1', startTime: '21:00', endTime: '22:15', requiredMusicians: 2, status: 'libre' },
+          ],
+          rider: {
+            stageSize: '5x3m',
+            soundSystem: 'Consola 16ch',
+            micCount: 3,
+            backline: ['Escenario'],
+            lighting: 'LED',
+          },
+          status: 'propuesta',
+          eventCode: 'DG-BAR-2026',
+          waitlist: [],
+          createdAt: '2026-11-21T15:30:00.000Z',
+        },
+      ])
+    );
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <OpenCallsView onViewVenue={() => {}} onViewMusician={() => {}} />
+            <ProfileView />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    // While activeVenueId is venue-1, Noche de cantautores is hidden behind the active-venue filter,
+    // AND the switcher + hint immediately alert the user and let them switch to La Subasta.
+    assert.strictEqual(screen.queryByText('Noche de cantautores'), null);
+    screen.getByTestId('other-venues-events-hint');
+
+    const switcher = screen.getByTestId('bar-venue-switcher') as HTMLSelectElement;
+    assert.strictEqual(switcher.value, 'venue-1');
+
+    await act(async () => {
+      fireEvent.change(switcher, { target: { value: 'venue-la-subasta' } });
+    });
+
+    screen.getByText('Noche de cantautores');
+    const profileSwitcher = screen.getByTestId('profile-venue-switcher') as HTMLSelectElement;
+    assert.strictEqual(profileSwitcher.value, 'venue-la-subasta');
+  });
 });

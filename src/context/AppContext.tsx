@@ -540,13 +540,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudSyncStatus('syncing');
       await connectWithGoogle();
       return true;
-    } catch (err) {
+    } catch (err: any) {
       setCloudSyncStatus(firebaseUser ? 'connected' : 'local_only');
-      setCloudSyncError(
-        err instanceof Error
-          ? err.message
-          : 'No se pudo completar el acceso con Google.'
-      );
+      const code = typeof err?.code === 'string' ? err.code : '';
+      let friendly = 'No se pudo completar el acceso con Google.';
+      if (code === 'auth/unauthorized-domain') {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'este dominio';
+        friendly = `El dominio "${host}" no está autorizado en Firebase Authentication (Authorized domains).`;
+      } else if (code === 'auth/popup-blocked') {
+        friendly = 'El navegador bloqueó la ventana emergente de Google. Permití popups e intentá de nuevo.';
+      } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        friendly = 'Cerraste el inicio de sesión con Google antes de completarlo.';
+      } else if (code === 'auth/network-request-failed') {
+        friendly = 'Sin conexión a internet para conectar con la nube.';
+      } else if (err instanceof Error && err.message) {
+        friendly = err.message;
+      }
+      setCloudSyncError(friendly);
       return false;
     }
   };

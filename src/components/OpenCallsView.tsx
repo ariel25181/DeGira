@@ -51,7 +51,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   const {
     role,
     setRole,
+    venues,
     currentVenue,
+    setActiveVenueId,
     currentMusician,
     eventProposals,
     slotBids,
@@ -98,6 +100,18 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     })
   );
 
+  const venueEventCounts = new Map<string, number>();
+  eventProposals.forEach((ev) => {
+    venueEventCounts.set(ev.venueId, (venueEventCounts.get(ev.venueId) || 0) + 1);
+  });
+  const otherVenuesWithEvents = venues.filter(
+    (v) => v.id !== currentVenue?.id && (venueEventCounts.get(v.id) || 0) > 0
+  );
+  const otherVenuesEventsCount = otherVenuesWithEvents.reduce(
+    (sum, v) => sum + (venueEventCounts.get(v.id) || 0),
+    0
+  );
+
   const toggleExpand = (id: string) => {
     setExpandedProposalId((prev) => (prev === id ? null : id));
   };
@@ -139,16 +153,59 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
               : 'Los recitales confirmados están publicados en la Cartelera general.'}
           </p>
 
-          {/* Action button for Bar */}
-          <div className="pt-2">
+          {/* Action button & Venue Switcher for Bar */}
+          <div className="pt-2 space-y-2.5">
             {role === 'bar' ? (
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center space-x-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Proponer Nueva Fecha ({currentVenue?.name || 'Bar Test 1'})</span>
-              </button>
+              <>
+                {venues.length > 1 && (
+                  <div className="space-y-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+                      <label
+                        htmlFor="bar-venue-switcher"
+                        className="text-[11px] font-bold uppercase tracking-wider text-slate-400 shrink-0"
+                      >
+                        Local / Sala activa:
+                      </label>
+                      <select
+                        id="bar-venue-switcher"
+                        data-testid="bar-venue-switcher"
+                        value={currentVenue?.id || ''}
+                        onChange={(e) => setActiveVenueId(e.target.value)}
+                        className="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-950/90 border border-slate-700 text-xs font-bold text-slate-100 focus:border-amber-500 outline-none"
+                      >
+                        {venues.map((v) => {
+                          const count = venueEventCounts.get(v.id) || 0;
+                          return (
+                            <option key={v.id} value={v.id}>
+                              {v.name} • {v.neighborhood} ({count} {count === 1 ? 'evento' : 'eventos'})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    {otherVenuesEventsCount > 0 && (
+                      <p
+                        data-testid="other-venues-events-hint"
+                        className="text-[11px] text-amber-300/90"
+                      >
+                        También hay {otherVenuesEventsCount}{' '}
+                        {otherVenuesEventsCount === 1 ? 'evento' : 'eventos'} en{' '}
+                        {otherVenuesWithEvents.length === 1
+                          ? 'otro local sincronizado'
+                          : 'otros locales sincronizados'}
+                        . Elegí el local arriba para verlo.
+                      </p>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center space-x-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Proponer Nueva Fecha ({currentVenue?.name || 'Bar Test 1'})</span>
+                </button>
+              </>
             ) : role === 'musico' ? (
               <span className="text-xs text-amber-400 font-semibold flex items-center gap-1.5">
                 <Music className="w-4 h-4" />

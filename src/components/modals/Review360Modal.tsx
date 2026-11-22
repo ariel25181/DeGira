@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Star,
@@ -13,18 +13,26 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { EventProposal, UserRole } from '../../types/index.ts';
-import { getEventEndTimestampMs, getReviewAvailability } from '../../utils/reviewEligibility.ts';
+import { getEventEndTimestampMs, getReviewAvailability, PendingReviewItem } from '../../utils/reviewEligibility.ts';
 
 interface Review360ModalProps {
   isOpen: boolean;
   onClose: () => void;
   event: EventProposal | null;
+  remainingPendingCount?: number;
+  nextPendingItem?: PendingReviewItem | null;
+  onContinueNext?: (item: PendingReviewItem) => void;
+  onOpenAllPending?: () => void;
 }
 
 export const Review360Modal: React.FC<Review360ModalProps> = ({
   isOpen,
   onClose,
   event,
+  remainingPendingCount = 0,
+  nextPendingItem = null,
+  onContinueNext,
+  onOpenAllPending,
 }) => {
   const {
     role,
@@ -45,6 +53,16 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
   const [commentMusicians, setCommentMusicians] = useState('');
 
   const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    setSubmitted(false);
+    setRatingEvent(5);
+    setCommentEvent('');
+    setRatingVenue(5);
+    setCommentVenue('');
+    setRatingMusicians(5);
+    setCommentMusicians('');
+  }, [isOpen, event?.id]);
 
   if (!isOpen || !event) return null;
 
@@ -142,10 +160,6 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
     }
 
     setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      onClose();
-    }, 1800);
   };
 
   return (
@@ -179,16 +193,82 @@ export const Review360Modal: React.FC<Review360ModalProps> = ({
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-5 space-y-5 text-xs text-slate-300 max-h-[75vh] overflow-y-auto">
           {submitted ? (
-            <div className="text-center py-8 space-y-3">
+            <div className="text-center py-6 space-y-4">
               <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
                 <CheckCircle className="w-6 h-6 stroke-[2.5]" />
               </div>
-              <h4 className="text-base font-black text-slate-100">
-                ¡Calificación 360° Registrada!
-              </h4>
-              <p className="text-xs text-slate-400">
-                Tu evaluación bilateral construye la reputación verificada de la escena musical porteña en DeGira.
-              </p>
+              <div className="space-y-1">
+                <h4 className="text-base font-black text-slate-100">
+                  ¡Calificación 360° Registrada!
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Tu evaluación bilateral construye la reputación verificada de la escena musical porteña en DeGira.
+                </p>
+              </div>
+
+              {remainingPendingCount > 0 && nextPendingItem ? (
+                <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/40 text-left space-y-3">
+                  <div className="space-y-1">
+                    <span className="inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {remainingPendingCount} {remainingPendingCount === 1 ? 'pendiente' : 'pendientes'}
+                    </span>
+                    <p className="text-sm font-bold text-slate-100">
+                      ¿Querés seguir calificando los shows pendientes?
+                    </p>
+                    <p className="text-xs text-slate-300">
+                      Todavía tenés {remainingPendingCount}{' '}
+                      {remainingPendingCount === 1 ? 'calificación habilitada' : 'calificaciones habilitadas'}. Siguiente:{' '}
+                      <strong className="text-amber-300">{nextPendingItem.title}</strong> ({nextPendingItem.venueName}).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    {onContinueNext && (
+                      <button
+                        type="button"
+                        data-testid="continue-next-review-btn"
+                        onClick={() => onContinueNext(nextPendingItem)}
+                        className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20"
+                      >
+                        <span>Sí, seguir calificando</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onOpenAllPending && (
+                      <button
+                        type="button"
+                        data-testid="view-all-pending-reviews-btn"
+                        onClick={onOpenAllPending}
+                        className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-colors"
+                      >
+                        Ver todos ({remainingPendingCount})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="finish-review-later-btn"
+                      onClick={onClose}
+                      className="px-3 py-2.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-bold text-xs transition-colors"
+                    >
+                      Más tarde
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-emerald-300">
+                    ¡Al día! Ya no te quedan calificaciones pendientes.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="review-done-btn"
+                    onClick={onClose}
+                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-colors"
+                  >
+                    Listo
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <>

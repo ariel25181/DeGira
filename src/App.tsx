@@ -252,12 +252,28 @@ function MainApp() {
     setIsPendingReviewsReminderOpen(false);
     setIsIconMenuOpen(false);
     if (item.eventProposal) {
+      setIsReviewModalOpen(false);
       setReview360Event(item.eventProposal);
       setIsReview360Open(true);
     } else if (item.reviewModalParams) {
+      setIsReview360Open(false);
       setReviewModalParams(item.reviewModalParams);
       setIsReviewModalOpen(true);
     }
+  };
+
+  const remainingForReview360 = review360Event
+    ? pendingReviewsSummary.availableNow.filter((item) => item.eventId !== review360Event.id)
+    : pendingReviewsSummary.availableNow;
+
+  const remainingForReviewModal = reviewModalParams.showIdToComplete
+    ? pendingReviewsSummary.availableNow.filter((item) => item.eventId !== reviewModalParams.showIdToComplete)
+    : pendingReviewsSummary.availableNow;
+
+  const handleOpenAllPendingFromReview = () => {
+    setIsReview360Open(false);
+    setIsReviewModalOpen(false);
+    setIsPendingReviewsReminderOpen(true);
   };
 
   const handleViewVenueProfile = (venueId: string) => {
@@ -573,12 +589,20 @@ function MainApp() {
         showIdToComplete={reviewModalParams.showIdToComplete}
         showStartTime={reviewModalParams.showStartTime}
         showEndTime={reviewModalParams.showEndTime}
+        remainingPendingCount={remainingForReviewModal.length}
+        nextPendingItem={remainingForReviewModal[0] || null}
+        onContinueNext={handleRatePendingItem}
+        onOpenAllPending={handleOpenAllPendingFromReview}
       />
 
       <Review360Modal
         isOpen={isReview360Open}
         onClose={() => setIsReview360Open(false)}
         event={review360Event}
+        remainingPendingCount={remainingForReview360.length}
+        nextPendingItem={remainingForReview360[0] || null}
+        onContinueNext={handleRatePendingItem}
+        onOpenAllPending={handleOpenAllPendingFromReview}
       />
 
       <PendingReviewsReminderModal
