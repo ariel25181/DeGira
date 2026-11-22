@@ -89,7 +89,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'venueId', 'venueName', 'venueAddress', 'venueNeighborhood', 'venuePhoto',
           'title', 'date', 'startTime', 'endTime', 'totalCapacity', 'remainingCapacity',
-          'baseCachetARS', 'ticketPriceARS', 'targetGenres', 'slots', 'rider', 'status',
+          'baseCachetARS', 'cachetType', 'ticketPriceARS', 'targetGenres', 'slots', 'rider', 'status',
           'eventCode', 'waitlist', 'cachetPaid', 'cachetPaidAt', 'feedbackSentAt',
           'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
         ])
@@ -106,6 +106,8 @@ service cloud.firestore {
         && data.totalCapacity is number && data.totalCapacity >= 1 && data.totalCapacity <= 10000
         && data.remainingCapacity is number && data.remainingCapacity >= 0 && data.remainingCapacity <= data.totalCapacity
         && data.baseCachetARS is number && data.baseCachetARS >= 0
+        && (!('cachetType' in data) || data.cachetType in ['fijo', 'a_la_gorra'])
+        && (!('cachetType' in data) || data.cachetType != 'a_la_gorra' || data.baseCachetARS == 0)
         && (!('ticketPriceARS' in data) || (data.ticketPriceARS is number && data.ticketPriceARS >= 0))
         && (!('targetGenres' in data) || isBoundedStringList(data.targetGenres, 12))
         && data.slots is list && data.slots.size() >= 1 && data.slots.size() <= 20 && data.slots[0] is map
@@ -132,7 +134,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'eventId', 'slotId', 'musicianId', 'musicianName', 'musicianAvatar',
-          'proposedCachetARS', 'musiciansCount', 'equipmentProvided', 'equipmentNeeded',
+          'proposedCachetARS', 'cachetType', 'musiciansCount', 'equipmentProvided', 'equipmentNeeded',
           'musicLinks', 'inputList', 'reminderSentAt', 'reminderCount',
           'retracted', 'retractedAt', 'status', 'history',
           'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
@@ -143,7 +145,12 @@ service cloud.firestore {
         && data.musicianId is string && data.musicianId.size() >= 1 && data.musicianId.size() <= 128
         && data.musicianName is string && data.musicianName.size() >= 1 && data.musicianName.size() <= 140
         && isOptionalBoundedString(data, 'musicianAvatar', 600)
-        && data.proposedCachetARS is number && data.proposedCachetARS > 0
+        && (!('cachetType' in data) || data.cachetType in ['fijo', 'a_la_gorra'])
+        && data.proposedCachetARS is number
+        && (
+          data.proposedCachetARS > 0
+          || ('cachetType' in data && data.cachetType == 'a_la_gorra' && data.proposedCachetARS == 0)
+        )
         && data.musiciansCount is number && data.musiciansCount >= 1 && data.musiciansCount <= 30
         && data.equipmentProvided is string && data.equipmentProvided.size() <= 400
         && data.equipmentNeeded is string && data.equipmentNeeded.size() <= 400
@@ -372,8 +379,12 @@ service cloud.firestore {
               incoming().status in ['pendiente_bar', 'contraoferta_musico', 'rechazada']
               || (incoming().status == 'aceptada' && existing().status == 'contraoferta_bar')
             )
+            && (
+              existing().status != 'aceptada'
+              || incoming().musiciansCount == existing().musiciansCount
+            )
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'proposedCachetARS', 'history', 'reminderSentAt',
+              'status', 'proposedCachetARS', 'cachetType', 'musiciansCount', 'history', 'reminderSentAt',
               'reminderCount', 'retracted', 'retractedAt', 'updatedAtTimestamp'
             ])
           )
@@ -391,7 +402,7 @@ service cloud.firestore {
               || (incoming().status == 'aceptada' && existing().status in ['pendiente_bar', 'contraoferta_musico'])
             )
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'proposedCachetARS', 'history', 'updatedAtTimestamp'
+              'status', 'proposedCachetARS', 'cachetType', 'history', 'updatedAtTimestamp'
             ])
           )
         );

@@ -1472,3 +1472,119 @@ test('46. end-to-end handover: Mus 1 wins Bar 1 slot -> retracts accepted -> Mus
   assert.equal(a2.updatedEvent?.slots[0].assignedMusicianId, 'mus-2');
   assert.equal(a2.updatedEvent?.slots[0].agreedCachetARS, 62000);
 });
+
+test('47. allows a_la_gorra bid submission with proposedCachetARS: 0 while rejecting fijo with 0', () => {
+  const ev = makeProposal({ cachetType: 'fijo', baseCachetARS: 70000 });
+
+  const failFijo = applyBidSubmissionTransition({
+    eventProposals: [ev],
+    slotBids: [],
+    bid: makeBid({ id: 'b-fijo-0', cachetType: 'fijo', proposedCachetARS: 0 }),
+  });
+  assert.equal(failFijo.ok, false);
+
+  const okGorra = applyBidSubmissionTransition({
+    eventProposals: [ev],
+    slotBids: [],
+    bid: makeBid({ id: 'b-gorra', cachetType: 'a_la_gorra', proposedCachetARS: 99999, musiciansCount: 1 }),
+  });
+  assert.equal(okGorra.ok, true);
+  assert.equal(okGorra.newBid.cachetType, 'a_la_gorra');
+  assert.equal(okGorra.newBid.proposedCachetARS, 0);
+  assert.equal(okGorra.newBid.musiciansCount, 1);
+});
+
+test('48. Bar and Musician can switch between fijo and a_la_gorra in counteroffers and accept preserves agreedCachetType', () => {
+  const ev = makeProposal({ cachetType: 'fijo', baseCachetARS: 70000 });
+  const initBid = makeBid({ id: 'b-switch', proposedCachetARS: 80000, cachetType: 'fijo', musiciansCount: 2 });
+
+  const s = applyBidSubmissionTransition({ eventProposals: [ev], slotBids: [], bid: initBid });
+  assert.equal(s.ok, true);
+
+  // Bar counters with a_la_gorra
+  const barCounter = applyBidResponseTransition({
+    eventProposals: s.eventProposals,
+    slotBids: s.slotBids,
+    bidId: 'b-switch',
+    actorRole: 'bar',
+    actorEntityId: 'venue-1',
+    action: 'counter',
+    counterCachetType: 'a_la_gorra',
+  });
+  assert.equal(barCounter.ok, true);
+  assert.equal(barCounter.updatedBid.cachetType, 'a_la_gorra');
+  assert.equal(barCounter.updatedBid.proposedCachetARS, 0);
+  assert.equal(barCounter.updatedBid.status, 'contraoferta_bar');
+
+  // Musician counters back with fijo 75000 AND updates musiciansCount to 3
+  const musCounter = applyBidResponseTransition({
+    eventProposals: barCounter.eventProposals,
+    slotBids: barCounter.slotBids,
+    bidId: 'b-switch',
+    actorRole: 'musico',
+    actorEntityId: 'mus-1',
+    action: 'counter',
+    counterCachetType: 'fijo',
+    counterCachet: 75000,
+    counterMusiciansCount: 3,
+  });
+  assert.equal(musCounter.ok, true);
+  assert.equal(musCounter.updatedBid.cachetType, 'fijo');
+  assert.equal(musCounter.updatedBid.proposedCachetARS, 75000);
+  assert.equal(musCounter.updatedBid.musiciansCount, 3);
+  assert.equal(musCounter.updatedBid.status, 'contraoferta_musico');
+
+  // Bar counters back with a_la_gorra and Musician accepts
+  const barCounter2 = applyBidResponseTransition({
+    eventProposals: musCounter.eventProposals,
+    slotBids: musCounter.slotBids,
+    bidId: 'b-switch',
+    actorRole: 'bar',
+    actorEntityId: 'venue-1',
+    action: 'counter',
+    counterCachetType: 'a_la_gorra',
+  });
+  assert.equal(barCounter2.ok, true);
+
+  const musAccept = applyBidResponseTransition({
+    eventProposals: barCounter2.eventProposals,
+    slotBids: barCounter2.slotBids,
+    bidId: 'b-switch',
+    actorRole: 'musico',
+    actorEntityId: 'mus-1',
+    action: 'accept',
+  });
+  assert.equal(musAccept.ok, true);
+  assert.equal(musAccept.updatedEvent?.slots[0].status, 'confirmado');
+  assert.equal(musAccept.updatedEvent?.slots[0].agreedCachetARS, 0);
+  assert.equal(musAccept.updatedEvent?.slots[0].agreedCachetType, 'a_la_gorra');
+});
+
+test('49. rejects invalid counterMusiciansCount (<1 or >30) during musician counteroffer', () => {
+  const ev = makeProposal();
+  const bid = makeBid({ id: 'b-count', status: 'contraoferta_bar' });
+  const badLow = validateRespondToSlotBid({
+    bid,
+    event: ev,
+    allSlotBids: [bid],
+    actorRole: 'musico',
+    actorEntityId: 'mus-1',
+    action: 'counter',
+    counterCachet: 70000,
+    counterMusiciansCount: 0,
+  });
+  assert.equal(badLow.allowed, false);
+
+  const badHigh = validateRespondToSlotBid({
+    bid,
+    event: ev,
+    allSlotBids: [bid],
+    actorRole: 'musico',
+    actorEntityId: 'mus-1',
+    action: 'counter',
+    counterCachet: 70000,
+    counterMusiciansCount: 31,
+  });
+  assert.equal(badHigh.allowed, false);
+});
+

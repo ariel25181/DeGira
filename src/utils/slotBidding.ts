@@ -1,4 +1,5 @@
 import {
+  CachetMode,
   EventProposal,
   EventSlot,
   LiveShowConfirmed,
@@ -20,6 +21,7 @@ export interface SlotDisplayState {
   assignedMusicianId?: string;
   assignedMusicianName?: string;
   agreedCachetARS?: number;
+  agreedCachetType?: CachetMode;
 }
 
 export interface DetectedClash {
@@ -158,6 +160,7 @@ export function getSlotDisplayState(params: {
       assignedMusicianId: slot.assignedMusicianId || acceptedBid?.musicianId,
       assignedMusicianName: slot.assignedMusicianName || acceptedBid?.musicianName,
       agreedCachetARS: slot.agreedCachetARS ?? acceptedBid?.proposedCachetARS,
+      agreedCachetType: slot.agreedCachetType ?? acceptedBid?.cachetType ?? proposal.cachetType,
     };
   }
 
@@ -334,8 +337,17 @@ export function isEventVisibleInConvocatorias(params: {
 
 export function applySlotAcceptToProposal(
   proposal: EventProposal,
-  bid: Pick<MusicianSlotBid, 'slotId' | 'musicianId' | 'musicianName' | 'proposedCachetARS'>
+  bid: Pick<MusicianSlotBid, 'slotId' | 'musicianId' | 'musicianName' | 'proposedCachetARS' | 'cachetType'>
 ): EventProposal {
+  const effectiveCachetType: CachetMode =
+    bid.cachetType === 'a_la_gorra'
+      ? 'a_la_gorra'
+      : bid.cachetType === 'fijo'
+      ? 'fijo'
+      : proposal.cachetType === 'a_la_gorra'
+      ? 'a_la_gorra'
+      : 'fijo';
+
   const updatedSlots = proposal.slots.map((s) =>
     s.id === bid.slotId
       ? {
@@ -343,7 +355,8 @@ export function applySlotAcceptToProposal(
           status: 'confirmado' as const,
           assignedMusicianId: bid.musicianId,
           assignedMusicianName: bid.musicianName,
-          agreedCachetARS: bid.proposedCachetARS,
+          agreedCachetARS: effectiveCachetType === 'a_la_gorra' ? 0 : bid.proposedCachetARS,
+          ...(bid.cachetType || proposal.cachetType ? { agreedCachetType: effectiveCachetType } : {}),
         }
       : s
   );
@@ -378,6 +391,7 @@ export function applySlotReleaseToProposal(
           assignedMusicianId: undefined,
           assignedMusicianName: undefined,
           agreedCachetARS: undefined,
+          agreedCachetType: undefined,
           status: nextSlotStatus,
         }
       : s
@@ -426,8 +440,20 @@ export function validateRespondToSlotBid(params: {
   actorEntityId?: string;
   action: 'accept' | 'reject' | 'counter';
   counterCachet?: number;
+  counterCachetType?: CachetMode;
+  counterMusiciansCount?: number;
 }): { allowed: boolean; reason?: string } {
-  const { bid, event, allSlotBids, actorRole, actorEntityId, action, counterCachet } = params;
+  const {
+    bid,
+    event,
+    allSlotBids,
+    actorRole,
+    actorEntityId,
+    action,
+    counterCachet,
+    counterCachetType,
+    counterMusiciansCount,
+  } = params;
 
   if (actorRole !== 'bar' && actorRole !== 'musico') {
     return {
@@ -521,15 +547,33 @@ export function validateRespondToSlotBid(params: {
   }
 
   if (action === 'counter') {
+    const effectiveCounterType: CachetMode =
+      counterCachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+
+    if (effectiveCounterType === 'fijo') {
+      if (
+        counterCachet === undefined ||
+        typeof counterCachet !== 'number' ||
+        !Number.isFinite(counterCachet) ||
+        counterCachet <= 0
+      ) {
+        return {
+          allowed: false,
+          reason: 'El monto de la contraoferta debe ser mayor a $ 0.',
+        };
+      }
+    }
+
     if (
-      counterCachet === undefined ||
-      typeof counterCachet !== 'number' ||
-      !Number.isFinite(counterCachet) ||
-      counterCachet <= 0
+      counterMusiciansCount !== undefined &&
+      (typeof counterMusiciansCount !== 'number' ||
+        !Number.isFinite(counterMusiciansCount) ||
+        counterMusiciansCount < 1 ||
+        counterMusiciansCount > 30)
     ) {
       return {
         allowed: false,
-        reason: 'El monto de la contraoferta debe ser mayor a $ 0.',
+        reason: 'La cantidad de músicos en escenario debe estar entre 1 y 30.',
       };
     }
 
@@ -625,25 +669,35 @@ export function applyBidSubmissionTransition(params: {
     return { ok: false, message: 'Horario del evento no encontrado.' };
   }
 
-  if (!Number.isFinite(bid.proposedCachetARS) || bid.proposedCachetARS <= 0) {
-    return { ok: false, message: 'El caché propuesto debe ser mayor a $ 0.' };
+  const bidCachetType: CachetMode = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+  if (bidCachetType === 'fijo') {
+    if (!Number.isFinite(bid.proposedCachetARS) || bid.proposedCachetARS <= 0) {
+      return { ok: false, message: 'El caché propuesto debe ser mayor a $ 0.' };
+    }
+  } else if (!Number.isFinite(bid.proposedCachetARS) || bid.proposedCachetARS < 0) {
+    return { ok: false, message: 'Caché inválido para modalidad A la gorra.' };
   }
+
+  const normalizedBid: MusicianSlotBid =
+    bidCachetType === 'a_la_gorra'
+      ? { ...bid, cachetType: 'a_la_gorra', proposedCachetARS: 0 }
+      : bid;
 
   const check = canSubmitBidForSlot({
     proposal: targetEvent,
     slot: targetSlot,
     slotBids,
-    musicianId: bid.musicianId,
+    musicianId: normalizedBid.musicianId,
   });
   if (!check.allowed) {
     return { ok: false, message: check.reason || 'No se puede postular a este horario.' };
   }
 
-  const nextBids = [bid, ...slotBids];
+  const nextBids = [normalizedBid, ...slotBids];
   const updatedEvent: EventProposal = {
     ...targetEvent,
     slots: targetEvent.slots.map((s) =>
-      s.id === bid.slotId && s.status === 'libre'
+      s.id === normalizedBid.slotId && s.status === 'libre'
         ? { ...s, status: 'negociando' as const }
         : s
     ),
@@ -655,7 +709,7 @@ export function applyBidSubmissionTransition(params: {
     slotBids: nextBids,
     eventProposals: nextEvents,
     updatedEvent,
-    newBid: bid,
+    newBid: normalizedBid,
   };
 }
 
@@ -667,6 +721,8 @@ export function applyBidResponseTransition(params: {
   actorEntityId?: string;
   action: 'accept' | 'reject' | 'counter';
   counterCachet?: number;
+  counterCachetType?: CachetMode;
+  counterMusiciansCount?: number;
   note?: string;
   nowIso?: string;
   historyId?: string;
@@ -688,6 +744,8 @@ export function applyBidResponseTransition(params: {
     actorEntityId,
     action,
     counterCachet,
+    counterCachetType,
+    counterMusiciansCount,
     note,
     nowIso = new Date().toISOString(),
     historyId = makeUniqueId('h'),
@@ -707,6 +765,8 @@ export function applyBidResponseTransition(params: {
     actorEntityId,
     action,
     counterCachet,
+    counterCachetType,
+    counterMusiciansCount,
   });
   if (!check.allowed) {
     return { ok: false, message: check.reason || 'Acción no permitida.' };
@@ -714,6 +774,8 @@ export function applyBidResponseTransition(params: {
 
   let newStatus: MusicianSlotBid['status'] = bid.status;
   let newProposedCachet = bid.proposedCachetARS;
+  let newCachetType: CachetMode | undefined = bid.cachetType;
+  let newMusiciansCount = bid.musiciansCount;
 
   if (action === 'accept') {
     newStatus = 'aceptada';
@@ -721,8 +783,16 @@ export function applyBidResponseTransition(params: {
     newStatus = 'rechazada';
   } else if (action === 'counter') {
     newStatus = actorRole === 'bar' ? 'contraoferta_bar' : 'contraoferta_musico';
-    if (counterCachet !== undefined) {
+    const effectiveCounterType: CachetMode =
+      counterCachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+    newCachetType = effectiveCounterType;
+    if (effectiveCounterType === 'a_la_gorra') {
+      newProposedCachet = 0;
+    } else if (counterCachet !== undefined) {
       newProposedCachet = counterCachet;
+    }
+    if (counterMusiciansCount !== undefined && actorRole === 'musico') {
+      newMusiciansCount = Math.max(1, Math.min(30, Math.round(counterMusiciansCount)));
     }
   }
 
@@ -731,12 +801,15 @@ export function applyBidResponseTransition(params: {
     actor: actorRole === 'bar' ? 'bar' : 'musico',
     actorName: actorRole === 'bar' ? event.venueName : bid.musicianName,
     cachetARS: newProposedCachet,
+    ...(newCachetType ? { cachetType: newCachetType } : {}),
     note:
       note ||
       (action === 'accept'
         ? 'Aceptó la propuesta.'
         : action === 'reject'
         ? 'Rechazó la propuesta.'
+        : newCachetType === 'a_la_gorra'
+        ? 'Propuso caché a la gorra.'
         : 'Envió una contraoferta.'),
     createdAt: nowIso,
   };
@@ -745,6 +818,8 @@ export function applyBidResponseTransition(params: {
     ...bid,
     status: newStatus,
     proposedCachetARS: newProposedCachet,
+    ...(newCachetType ? { cachetType: newCachetType } : {}),
+    musiciansCount: newMusiciansCount,
     history: [...bid.history, historyEntry],
   };
 
@@ -757,6 +832,7 @@ export function applyBidResponseTransition(params: {
       musicianId: bid.musicianId,
       musicianName: bid.musicianName,
       proposedCachetARS: newProposedCachet,
+      cachetType: newCachetType,
     });
   } else if (action === 'reject') {
     const remainingActiveForSlot = nextBids.filter(

@@ -36,7 +36,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
-import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import { formatARS, formatCachet, formatDateBA } from '../utils/bookingLogic.ts';
 import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
 import { MusicGenre, NeighborhoodBA, PublicEventReservation, MusicianInputChannel, MusicianMusicLinks, EventProposal } from '../types/index.ts';
 import { UploadReceiptModal } from './modals/UploadReceiptModal.tsx';
@@ -1780,7 +1780,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       </div>
                       <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
                         <span className="text-[10px] text-slate-400 block">Cachet Músico</span>
-                        <strong className="text-amber-400 font-bold">{formatARS(p.baseCachetARS)}</strong>
+                        <strong className="text-amber-400 font-bold">{formatCachet(p.baseCachetARS, p.cachetType)}</strong>
                       </div>
                       <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
                         <span className="text-[10px] text-slate-400 block">Margen Neto Bar</span>
@@ -1811,7 +1811,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                           className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 self-start sm:self-auto"
                         >
                           <DollarSign className="w-4 h-4 stroke-[3]" />
-                          <span>Liquidar Cachet al Músico ({formatARS(p.baseCachetARS)})</span>
+                          <span>Liquidar Cachet al Músico ({formatCachet(p.baseCachetARS, p.cachetType)})</span>
                         </button>
                       )}
                     </div>

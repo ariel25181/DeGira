@@ -139,7 +139,13 @@ export function sendEventPublishedToMusician(params: {
   eventDate: string;
   slotTime: string;
   agreedCachetARS: number;
+  agreedCachetType?: 'fijo' | 'a_la_gorra';
 }) {
+  const cachetLabel =
+    params.agreedCachetType === 'a_la_gorra'
+      ? 'A la gorra'
+      : `$${params.agreedCachetARS.toLocaleString('es-AR')}`;
+
   return saveEmailRecord({
     to: params.musicianEmail,
     subject: `🎉 ¡Fecha publicada en Cartelera! ${params.eventTitle} en ${params.venueName}`,
@@ -150,7 +156,7 @@ ${params.venueName} acaba de publicar el evento en la cartelera de DeGira para e
 Detalles acordados:
 - Fecha: ${params.eventDate}
 - Tu horario: ${params.slotTime}
-- Caché acordado: $${params.agreedCachetARS.toLocaleString('es-AR')}
+- Caché acordado: ${cachetLabel}
 
 El público ya puede reservar sus entradas. ¡Muchos éxitos en la fecha!
 
@@ -202,7 +208,13 @@ export function sendProposalReceivedEmailToBar(params: {
   eventTitle: string;
   slotTime: string;
   cachetARS: number;
+  cachetType?: 'fijo' | 'a_la_gorra';
 }) {
+  const cachetLabel =
+    params.cachetType === 'a_la_gorra'
+      ? 'A la gorra'
+      : `$${params.cachetARS.toLocaleString('es-AR')}`;
+
   return saveEmailRecord({
     to: params.barEmail,
     subject: `🎸 Nueva propuesta musical de ${params.musicianName} para ${params.eventTitle}`,
@@ -212,7 +224,7 @@ ${params.musicianName} se postuló para tocar en tu evento "${params.eventTitle}
 
 Detalles:
 - Horario solicitado: ${params.slotTime}
-- Caché propuesto: $${params.cachetARS.toLocaleString('es-AR')}
+- Caché propuesto: ${cachetLabel}
 
 Entrá al Panel del Bar en "Postulaciones de Músicos" para aceptar, enviar contraoferta o rechazar.
 
@@ -231,6 +243,7 @@ export function sendNegotiationUpdateEmailToMusician(params: {
   eventTitle: string;
   action: 'counter' | 'accept' | 'reject';
   newCachetARS?: number;
+  cachetType?: 'fijo' | 'a_la_gorra';
   note?: string;
 }) {
   const actionSubject =
@@ -240,11 +253,16 @@ export function sendNegotiationUpdateEmailToMusician(params: {
       ? `💬 Contraoferta de Caché de ${params.venueName}`
       : `Actualización sobre tu propuesta en ${params.venueName}`;
 
+  const counterLabel =
+    params.cachetType === 'a_la_gorra'
+      ? 'A la gorra'
+      : `$${params.newCachetARS?.toLocaleString('es-AR')}`;
+
   const actionText =
     params.action === 'accept'
       ? `¡Felicitaciones! ${params.venueName} aceptó tu propuesta para "${params.eventTitle}". La fecha está confirmada.`
       : params.action === 'counter'
-      ? `${params.venueName} te envió una contraoferta de caché por $${params.newCachetARS?.toLocaleString('es-AR')}. Nota del bar: "${params.note || 'Sin nota'}".`
+      ? `${params.venueName} te envió una contraoferta de caché (${counterLabel}). Nota del bar: "${params.note || 'Sin nota'}".`
       : `${params.venueName} no pudo aceptar tu postulación en esta ocasión para "${params.eventTitle}".`;
 
   return saveEmailRecord({

@@ -27,8 +27,8 @@ import {
   Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
-import { EventProposal, EventSlot, MusicianSlotBid } from '../types/index.ts';
-import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import { CachetMode, EventProposal, EventSlot, MusicianSlotBid } from '../types/index.ts';
+import { formatARS, formatCachet, formatDateBA, sanitizeNumericInput } from '../utils/bookingLogic.ts';
 import {
   getSlotDisplayState,
   isEventVisibleInConvocatorias,
@@ -68,7 +68,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
   // Counter offer state inline for bar / musician
   const [counterInputId, setCounterInputId] = useState<string | null>(null);
-  const [counterAmount, setCounterAmount] = useState<number>(75000);
+  const [counterAmountText, setCounterAmountText] = useState<string>('75000');
+  const [counterCachetType, setCounterCachetType] = useState<CachetMode>('fijo');
+  const [counterMusiciansCount, setCounterMusiciansCount] = useState<number>(2);
   const [counterNote, setCounterNote] = useState<string>('');
   const [negError, setNegError] = useState<string | null>(null);
 
@@ -81,6 +83,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   useEffect(() => {
     setCounterInputId(null);
     setCounterNote('');
+    setCounterCachetType('fijo');
     setNegError(null);
     setBiddingEvent(null);
     setBiddingSlot(null);
@@ -229,7 +232,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
           <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
             Filtrar propuestas por estado:
           </span>
-          <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none text-xs font-bold">
+          <div className="flex flex-wrap gap-2 pb-1 text-xs font-bold">
             {(['todos', 'propuesta', 'para_publicar', 'publicada', 'agotada'] as const).map((st) => (
               <button
                 key={st}
@@ -289,24 +292,24 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
               >
                 {/* Header */}
                 <div className="p-4 sm:p-5 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center space-x-3">
+                  <div className="flex items-start justify-between gap-2 sm:gap-3">
+                    <div className="flex items-center space-x-3 min-w-0 flex-1">
                       <img
                         src={proposal.venuePhoto}
                         alt={proposal.venueName}
                         onClick={() => onViewVenue(proposal.venueId)}
-                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-amber-500"
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-amber-500 shrink-0"
                       />
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <h3
                           onClick={() => onViewVenue(proposal.venueId)}
-                          className="font-bold text-slate-100 text-base font-display hover:text-amber-400 cursor-pointer"
+                          className="font-bold text-slate-100 text-base font-display hover:text-amber-400 cursor-pointer break-words"
                         >
                           {proposal.title}
                         </h3>
-                        <div className="flex items-center text-xs text-slate-400 space-x-1 mt-0.5">
-                          <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{proposal.venueName} • {proposal.venueNeighborhood}</span>
+                        <div className="flex items-center text-xs text-slate-400 space-x-1 mt-0.5 min-w-0">
+                          <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{proposal.venueName} • {proposal.venueNeighborhood}</span>
                         </div>
                       </div>
                     </div>
@@ -358,7 +361,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-400 text-[10px] uppercase font-semibold block">Caché Base</span>
-                      <strong className="text-emerald-400 font-extrabold">{formatARS(proposal.baseCachetARS)}</strong>
+                      <strong className="text-emerald-400 font-extrabold">
+                        {formatCachet(proposal.baseCachetARS, proposal.cachetType)}
+                      </strong>
                     </div>
                   </div>
 
@@ -415,7 +420,10 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                                   <span>
                                     {role === 'bar' || slotState.isLockedByViewer
-                                      ? `Acordado con: ${slotState.assignedMusicianName || 'Músico confirmado'} (${formatARS(slotState.agreedCachetARS || proposal.baseCachetARS)})`
+                                      ? `Acordado con: ${slotState.assignedMusicianName || 'Músico confirmado'} (${formatCachet(
+                                          slotState.agreedCachetARS ?? proposal.baseCachetARS,
+                                          slotState.agreedCachetType ?? proposal.cachetType
+                                        )})`
                                       : 'Horario reservado'}
                                   </span>
                                 </div>
@@ -534,90 +542,22 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 : 'bg-slate-900 border-slate-800'
                             }`}
                           >
+                            {/* Top Header: Musician + Count left, Cachet + Status Badge right (zero overflow on 390px) */}
                             <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <div className="font-extrabold text-sm text-slate-100 flex items-center gap-1.5">
-                                  <span>{bid.musicianName}</span>
-                                  <span className="text-[11px] text-slate-400 font-normal">
-                                    ({bid.musiciansCount} músicos en escenario)
+                              <div className="min-w-0 flex-1">
+                                <div className="font-extrabold text-sm text-slate-100 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="break-words">{bid.musicianName}</span>
+                                  <span className="text-[11px] text-slate-400 font-normal whitespace-nowrap">
+                                    ({bid.musiciansCount} {bid.musiciansCount === 1 ? 'músico' : 'músicos'} en escenario)
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-slate-400 mt-0.5">
-                                  Lleva: <strong className="text-slate-300">{bid.equipmentProvided}</strong>
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  Pide al bar: <strong className="text-slate-300">{bid.equipmentNeeded}</strong>
-                                </div>
-
-                                {/* Music Streaming Links (Listen in 1 click) */}
-                                {(bid.musicLinks?.spotifyUrl || bid.musicLinks?.youtubeUrl || bid.musicLinks?.bandcampUrl) && (
-                                  <div className="flex items-center gap-1.5 pt-1">
-                                    <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
-                                      <Headphones className="w-3 h-3 text-emerald-400" />
-                                      Escuchar:
-                                    </span>
-                                    {bid.musicLinks?.spotifyUrl && (
-                                      <a
-                                        href={bid.musicLinks.spotifyUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
-                                      >
-                                        <span>Spotify</span>
-                                        <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
-                                    )}
-                                    {bid.musicLinks?.youtubeUrl && (
-                                      <a
-                                        href={bid.musicLinks.youtubeUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
-                                      >
-                                        <span>YouTube</span>
-                                        <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
-                                    )}
-                                    {bid.musicLinks?.bandcampUrl && (
-                                      <a
-                                        href={bid.musicLinks.bandcampUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-2 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
-                                      >
-                                        <span>Bandcamp</span>
-                                        <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Input List Preview */}
-                                {bid.inputList && bid.inputList.length > 0 && (
-                                  <div className="pt-1">
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                      <Sliders className="w-3 h-3 text-amber-400" />
-                                      <span>Input List ({bid.inputList.length} canales):</span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1 mt-0.5">
-                                      {bid.inputList.map((ch, idx) => (
-                                        <span
-                                          key={idx}
-                                          className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 text-[9px] text-slate-300 rounded font-mono"
-                                        >
-                                          Ch{ch.channel}: {ch.instrument} ({ch.micOrDI})
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
                               </div>
 
-                              <div className="text-right">
-                                <span className="font-extrabold text-emerald-400 text-sm block">
-                                  {formatARS(bid.proposedCachetARS)}
+                              <div className="text-right shrink-0 max-w-[46%]">
+                                <span className="font-extrabold text-emerald-400 text-sm block whitespace-nowrap">
+                                  {formatCachet(bid.proposedCachetARS, bid.cachetType)}
                                 </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-slate-800 text-slate-300">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-slate-800 text-slate-300 leading-tight mt-0.5">
                                   {bid.status === 'aceptada'
                                     ? 'Aceptada'
                                     : bid.status === 'contraoferta_bar'
@@ -631,11 +571,84 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                               </div>
                             </div>
 
+                            {/* Equipment & Audio Links & Input List: Full Width below header */}
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-slate-400 break-words">
+                                Lleva: <strong className="text-slate-300">{bid.equipmentProvided}</strong>
+                              </div>
+                              <div className="text-[11px] text-slate-400 break-words">
+                                Pide al bar: <strong className="text-slate-300">{bid.equipmentNeeded}</strong>
+                              </div>
+
+                              {/* Music Streaming Links (Listen in 1 click) */}
+                              {(bid.musicLinks?.spotifyUrl || bid.musicLinks?.youtubeUrl || bid.musicLinks?.bandcampUrl) && (
+                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                  <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+                                    <Headphones className="w-3 h-3 text-emerald-400" />
+                                    Escuchar:
+                                  </span>
+                                  {bid.musicLinks?.spotifyUrl && (
+                                    <a
+                                      href={bid.musicLinks.spotifyUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                                    >
+                                      <span>Spotify</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                  {bid.musicLinks?.youtubeUrl && (
+                                    <a
+                                      href={bid.musicLinks.youtubeUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                                    >
+                                      <span>YouTube</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                  {bid.musicLinks?.bandcampUrl && (
+                                    <a
+                                      href={bid.musicLinks.bandcampUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded text-[10px] font-bold flex items-center gap-0.5"
+                                    >
+                                      <span>Bandcamp</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Input List Preview */}
+                              {bid.inputList && bid.inputList.length > 0 && (
+                                <div className="pt-1">
+                                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                    <Sliders className="w-3 h-3 text-amber-400" />
+                                    <span>Input List ({bid.inputList.length} canales):</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1 mt-0.5">
+                                    {bid.inputList.map((ch, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 text-[9px] text-slate-300 rounded font-mono break-words"
+                                      >
+                                        Ch{ch.channel}: {ch.instrument} ({ch.micOrDI})
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
                             {/* Bid history */}
                             <div className="space-y-1 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-[11px]">
                               {bid.history.map((h) => (
-                                <div key={h.id} className="text-slate-300">
-                                  <strong className="text-amber-400">{h.actorName}:</strong> {h.note} ({formatARS(h.cachetARS)})
+                                <div key={h.id} className="text-slate-300 break-words">
+                                  <strong className="text-amber-400">{h.actorName}:</strong> {h.note} ({formatCachet(h.cachetARS, h.cachetType)})
                                 </div>
                               ))}
                             </div>
@@ -661,8 +674,14 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
                                   <button
                                     onClick={() => {
-                                      setCounterAmount(bid.proposedCachetARS);
+                                      setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
+                                      setCounterAmountText(
+                                        bid.proposedCachetARS > 0
+                                          ? String(bid.proposedCachetARS)
+                                          : String(proposal.baseCachetARS || 70000)
+                                      );
                                       setCounterNote('');
+                                      setNegError(null);
                                       setCounterInputId(isCounteringThis ? null : bid.id);
                                     }}
                                     className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
@@ -680,17 +699,46 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
                                 {isCounteringThis && (
                                   <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
-                                    <div className="flex items-center gap-2">
-                                      <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
-                                      <input
-                                        type="number"
-                                        step={5000}
-                                        min={1000}
-                                        value={counterAmount}
-                                        onChange={(e) => setCounterAmount(Number(e.target.value))}
-                                        className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
-                                      />
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setCounterCachetType('fijo')}
+                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                          counterCachetType === 'fijo'
+                                            ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                                        }`}
+                                      >
+                                        Monto Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setCounterCachetType('a_la_gorra')}
+                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                          counterCachetType === 'a_la_gorra'
+                                            ? 'bg-cyan-500 text-slate-950 border-cyan-500'
+                                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                                        }`}
+                                      >
+                                        🎩 A la gorra
+                                      </button>
                                     </div>
+
+                                    {counterCachetType === 'fijo' && (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                        <input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={1}
+                                          placeholder="Ej: 75000"
+                                          value={counterAmountText}
+                                          onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
+                                          className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
+                                        />
+                                      </div>
+                                    )}
+
                                     <input
                                       type="text"
                                       placeholder="Nota de contrapropuesta..."
@@ -700,7 +748,19 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     />
                                     <button
                                       onClick={() => {
-                                        const res = respondToSlotBid(bid.id, 'counter', counterAmount, counterNote || 'Contraoferta enviada.');
+                                        const numericAmount =
+                                          counterCachetType === 'a_la_gorra'
+                                            ? 0
+                                            : counterAmountText === ''
+                                            ? 0
+                                            : Number(counterAmountText);
+                                        const res = respondToSlotBid(
+                                          bid.id,
+                                          'counter',
+                                          numericAmount,
+                                          counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra.' : 'Contraoferta enviada.'),
+                                          { cachetType: counterCachetType }
+                                        );
                                         if (!res.ok) {
                                           setNegError(res.message || 'No se pudo enviar la contraoferta.');
                                           return;
@@ -729,12 +789,19 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
                                   >
                                     <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                    <span>Aceptar Contraoferta del Bar ({formatARS(bid.proposedCachetARS)})</span>
+                                    <span>Aceptar Contraoferta del Bar ({formatCachet(bid.proposedCachetARS, bid.cachetType)})</span>
                                   </button>
                                   <button
                                     onClick={() => {
-                                      setCounterAmount(bid.proposedCachetARS);
+                                      setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
+                                      setCounterAmountText(
+                                        bid.proposedCachetARS > 0
+                                          ? String(bid.proposedCachetARS)
+                                          : String(proposal.baseCachetARS || 70000)
+                                      );
+                                      setCounterMusiciansCount(bid.musiciansCount || 1);
                                       setCounterNote('');
+                                      setNegError(null);
                                       setCounterInputId(isCounteringThis ? null : bid.id);
                                     }}
                                     className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
@@ -750,18 +817,67 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 </div>
 
                                 {isCounteringThis && (
-                                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
-                                    <div className="flex items-center gap-2">
-                                      <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
-                                      <input
-                                        type="number"
-                                        step={5000}
-                                        min={1000}
-                                        value={counterAmount}
-                                        onChange={(e) => setCounterAmount(Number(e.target.value))}
-                                        className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
-                                      />
+                                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2.5 animate-in fade-in">
+                                    <div className="space-y-1">
+                                      <span className="text-[11px] text-slate-400 block">Cantidad de músicos en escenario:</span>
+                                      <div className="grid grid-cols-4 gap-1.5">
+                                        {[1, 2, 3, 4].map((cnt) => (
+                                          <button
+                                            key={cnt}
+                                            type="button"
+                                            onClick={() => setCounterMusiciansCount(cnt)}
+                                            className={`py-1 rounded-lg border text-[11px] font-bold ${
+                                              counterMusiciansCount === cnt
+                                                ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                                : 'bg-slate-900 text-slate-300 border-slate-700'
+                                            }`}
+                                          >
+                                            {cnt} {cnt === 1 ? 'músico' : 'músicos'}
+                                          </button>
+                                        ))}
+                                      </div>
                                     </div>
+
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setCounterCachetType('fijo')}
+                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                          counterCachetType === 'fijo'
+                                            ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                                        }`}
+                                      >
+                                        Monto Fijo
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setCounterCachetType('a_la_gorra')}
+                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                          counterCachetType === 'a_la_gorra'
+                                            ? 'bg-cyan-500 text-slate-950 border-cyan-500'
+                                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                                        }`}
+                                      >
+                                        🎩 Proponer A la gorra
+                                      </button>
+                                    </div>
+
+                                    {counterCachetType === 'fijo' && (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                        <input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={1}
+                                          placeholder="Ej: 80000"
+                                          value={counterAmountText}
+                                          onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
+                                          className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
+                                        />
+                                      </div>
+                                    )}
+
                                     <input
                                       type="text"
                                       placeholder="Nota de contrapropuesta para el bar..."
@@ -771,7 +887,19 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     />
                                     <button
                                       onClick={() => {
-                                        const res = respondToSlotBid(bid.id, 'counter', counterAmount, counterNote || 'Contraoferta enviada por el músico.');
+                                        const numericAmount =
+                                          counterCachetType === 'a_la_gorra'
+                                            ? 0
+                                            : counterAmountText === ''
+                                            ? 0
+                                            : Number(counterAmountText);
+                                        const res = respondToSlotBid(
+                                          bid.id,
+                                          'counter',
+                                          numericAmount,
+                                          counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el músico.' : 'Contraoferta enviada por el músico.'),
+                                          { cachetType: counterCachetType, musiciansCount: counterMusiciansCount }
+                                        );
                                         if (!res.ok) {
                                           setNegError(res.message || 'No se pudo enviar la contraoferta.');
                                           return;

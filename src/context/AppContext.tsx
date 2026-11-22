@@ -38,8 +38,9 @@ import {
   MusicianMusicLinks,
   MusicianInputChannel,
   SpectatorBenefit,
+  CachetMode,
 } from '../types/index.ts';
-import { calculateNewRating, calculateNewBreakdown } from '../utils/bookingLogic.ts';
+import { calculateNewRating, calculateNewBreakdown, formatCachet } from '../utils/bookingLogic.ts';
 import {
   applyPaymentConfirmationToEvent,
   restoreCapacityOnReservationRelease,
@@ -172,6 +173,7 @@ interface AppContextType {
     eventId: string;
     slotId: string;
     proposedCachetARS: number;
+    cachetType?: CachetMode;
     musiciansCount: number;
     equipmentProvided: string;
     equipmentNeeded: string;
@@ -186,7 +188,8 @@ interface AppContextType {
     bidId: string,
     action: 'accept' | 'reject' | 'counter',
     counterCachet?: number,
-    note?: string
+    note?: string,
+    options?: { cachetType?: CachetMode; musiciansCount?: number }
   ) => { ok: boolean; message?: string };
   createPublicEventReservation: (
     eventId: string,
@@ -1213,7 +1216,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 venueName: ev.venueName,
                 eventDate: ev.date,
                 slotTime: `${slot.startTime} - ${slot.endTime}`,
-                agreedCachetARS: slot.agreedCachetARS || ev.baseCachetARS,
+                agreedCachetARS: slot.agreedCachetARS ?? ev.baseCachetARS,
+                agreedCachetType: slot.agreedCachetType ?? ev.cachetType,
               });
             }
           });
@@ -1335,6 +1339,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventId: string;
     slotId: string;
     proposedCachetARS: number;
+    cachetType?: CachetMode;
     musiciansCount: number;
     equipmentProvided: string;
     equipmentNeeded: string;
@@ -1345,6 +1350,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const mus = currentMusician || musicians[0];
     const targetEvent = eventProposalsRef.current.find((e) => e.id === data.eventId);
     const targetSlot = targetEvent?.slots.find((s) => s.id === data.slotId);
+    const effectiveCachetType: CachetMode =
+      data.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+    const effectiveCachetARS = effectiveCachetType === 'a_la_gorra' ? 0 : data.proposedCachetARS;
 
     const newBid: MusicianSlotBid = {
       id: makeUniqueId('bid'),
@@ -1353,7 +1361,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       musicianId: mus.id,
       musicianName: mus.stageName,
       musicianAvatar: mus.avatarUrl,
-      proposedCachetARS: data.proposedCachetARS,
+      proposedCachetARS: effectiveCachetARS,
+      cachetType: effectiveCachetType,
       musiciansCount: data.musiciansCount,
       equipmentProvided: data.equipmentProvided,
       equipmentNeeded: data.equipmentNeeded,
@@ -1365,8 +1374,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: makeUniqueId('h'),
           actor: 'musico',
           actorName: mus.stageName,
-          cachetARS: data.proposedCachetARS,
-          note: data.initialNote || 'Postulación enviada con propuesta de caché y equipamiento.',
+          cachetARS: effectiveCachetARS,
+          cachetType: effectiveCachetType,
+          note:
+            data.initialNote ||
+            (effectiveCachetType === 'a_la_gorra'
+              ? 'Postulación enviada con propuesta de caché a la gorra y equipamiento.'
+              : 'Postulación enviada con propuesta de caché y equipamiento.'),
           createdAt: new Date().toISOString(),
         },
       ],
@@ -1388,7 +1402,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEventProposals(transition.eventProposals);
 
     if (firebaseUser) {
-      syncSlotBidCreate(newBid, targetEvent, firebaseUser.uid)
+      syncSlotBidCreate(transition.newBid, targetEvent, firebaseUser.uid)
         .then(() => {
           return syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid);
         })
@@ -1396,6 +1410,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const barEmail = targetEvent?.venueId === 'venue-2' ? 'bar2@degira.com.ar' : 'bar1@degira.com.ar';
+    const cachetSummary = formatCachet(effectiveCachetARS, effectiveCachetType);
 
     sendProposalReceivedEmailToBar({
       barEmail,
@@ -1403,7 +1418,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       musicianName: mus.stageName,
       eventTitle: targetEvent?.title || 'Show en Vivo',
       slotTime: targetSlot ? `${targetSlot.startTime} - ${targetSlot.endTime}` : '21:00',
-      cachetARS: data.proposedCachetARS,
+      cachetARS: effectiveCachetARS,
+      cachetType: effectiveCachetType,
     });
 
     setNotifications((prev) => [
@@ -1418,7 +1434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: makeUniqueId('notif-bar'),
         title: '🎸 Nueva Postulación de Músico',
-        message: `${mus.stageName} envió una propuesta con caché de $${data.proposedCachetARS.toLocaleString('es-AR')} para "${targetEvent?.title || 'tu fecha'}".`,
+        message: `${mus.stageName} envió una propuesta (${cachetSummary}) para "${targetEvent?.title || 'tu fecha'}".`,
         timestamp: 'Recién',
         read: false,
         type: 'application',
@@ -1536,7 +1552,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     bidId: string,
     action: 'accept' | 'reject' | 'counter',
     counterCachet?: number,
-    note?: string
+    note?: string,
+    options?: { cachetType?: CachetMode; musiciansCount?: number }
   ): { ok: boolean; message?: string } => {
     const actorEntityId = role === 'bar' ? currentVenue?.id : role === 'musico' ? currentMusician?.id : undefined;
 
@@ -1548,6 +1565,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actorEntityId,
       action,
       counterCachet,
+      counterCachetType: options?.cachetType,
+      counterMusiciansCount: options?.musiciansCount,
       note,
     });
 
@@ -1557,6 +1576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const { updatedBid, updatedEvent, event } = transition;
     const newProposedCachet = updatedBid.proposedCachetARS;
+    const newCachetLabel = formatCachet(newProposedCachet, updatedBid.cachetType);
 
     slotBidsRef.current = transition.slotBids;
     setSlotBids(transition.slotBids);
@@ -1583,7 +1603,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (action === 'counter') {
       sendPushNotification({
         title: '💬 Nueva Contraoferta de Caché',
-        body: `${role === 'bar' ? event.venueName : updatedBid.musicianName} propuso $${newProposedCachet.toLocaleString('es-AR')}.`,
+        body: `${role === 'bar' ? event.venueName : updatedBid.musicianName} propuso ${newCachetLabel}.`,
         targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
@@ -1619,6 +1639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       eventTitle: event.title,
       action,
       newCachetARS: newProposedCachet,
+      cachetType: updatedBid.cachetType,
       note,
     });
 
@@ -1635,7 +1656,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           action === 'accept'
             ? `${updatedBid.musicianName} y ${event.venueName} confirmaron su acuerdo para "${event.title}".`
             : action === 'counter'
-            ? `Se propuso un nuevo caché de $${newProposedCachet.toLocaleString('es-AR')} para "${event.title}".`
+            ? `Se propuso un nuevo caché (${newCachetLabel}) para "${event.title}".`
             : `La propuesta de ${updatedBid.musicianName} para "${event.title}" fue rechazada y el horario volvió a abrirse libre.`,
         timestamp: 'Recién',
         read: false,
@@ -1669,7 +1690,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 venueName: ev.venueName,
                 eventDate: ev.date,
                 slotTime: `${slot.startTime} - ${slot.endTime}`,
-                agreedCachetARS: slot.agreedCachetARS || ev.baseCachetARS,
+                agreedCachetARS: slot.agreedCachetARS ?? ev.baseCachetARS,
+                agreedCachetType: slot.agreedCachetType ?? ev.cachetType,
               });
             }
           });

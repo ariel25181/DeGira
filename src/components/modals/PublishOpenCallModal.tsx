@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Calendar, Clock, DollarSign, Speaker, Music, Plus, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { MusicGenre } from '../../types/index.ts';
+import { sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 
 interface PublishOpenCallModalProps {
   isOpen: boolean;
@@ -38,7 +39,7 @@ export const PublishOpenCallModal: React.FC<PublishOpenCallModalProps> = ({ isOp
   const [date, setDate] = useState<string>('2026-10-31');
   const [soundcheckTime, setSoundcheckTime] = useState<string>('19:00');
   const [showTime, setShowTime] = useState<string>('21:30 a 23:00 (2 sets)');
-  const [cachetAmount, setCachetAmount] = useState<number>(120000);
+  const [cachetAmountText, setCachetAmountText] = useState<string>('120000');
   const [cachetType, setCachetType] = useState<'fijo' | 'fijo_mas_consumo' | 'taquilla' | 'a_convenir'>('fijo_mas_consumo');
   const [cachetDetails, setCachetDetails] = useState<string>('En efectivo al finalizar + cena de cortesía');
   const [selectedGenres, setSelectedGenres] = useState<MusicGenre[]>(['Jazz', 'Bossa & MPB']);
@@ -65,6 +66,8 @@ export const PublishOpenCallModal: React.FC<PublishOpenCallModalProps> = ({ isOp
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const numericCachet = Number(cachetAmountText);
+    if (!Number.isFinite(numericCachet) || numericCachet <= 0) return;
 
     publishOpenCall({
       venueId: currentVenue.id,
@@ -77,7 +80,7 @@ export const PublishOpenCallModal: React.FC<PublishOpenCallModalProps> = ({ isOp
       targetGenres: selectedGenres.length > 0 ? selectedGenres : ['Acústico'],
       targetFormats: ['Dúo', 'Trío', 'Cuarteto'],
       cachetType,
-      cachetAmountARS: Number(cachetAmount),
+      cachetAmountARS: numericCachet,
       cachetDetails: cachetDetails || 'Caché en mano al finalizar el show.',
       providedBackline: selectedBackline,
       specialNotes:
@@ -198,10 +201,10 @@ export const PublishOpenCallModal: React.FC<PublishOpenCallModalProps> = ({ isOp
               <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
               <input
                 type="number"
-                min={10000}
-                step={5000}
-                value={cachetAmount}
-                onChange={(e) => setCachetAmount(Number(e.target.value))}
+                inputMode="numeric"
+                min={1}
+                value={cachetAmountText}
+                onChange={(e) => setCachetAmountText(sanitizeNumericInput(e.target.value))}
                 placeholder="Monto en ARS"
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl py-3 pl-10 pr-3 text-sm text-emerald-400 font-bold focus:outline-none focus:border-amber-500"
                 required

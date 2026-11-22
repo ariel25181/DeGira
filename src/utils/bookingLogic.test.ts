@@ -4,9 +4,11 @@ import {
   calculateNewRating,
   calculateNewBreakdown,
   formatARS,
+  formatCachet,
   formatDateBA,
   filterOpenCalls,
   filterMusicianAvailabilities,
+  sanitizeNumericInput,
 } from './bookingLogic.ts';
 import type { VenueOpenCall, MusicianAvailability } from '../types/index.ts';
 
@@ -37,6 +39,22 @@ test('calculateNewBreakdown updates criteria properly', () => {
 test('formatARS outputs formatted currency', () => {
   assert.equal(formatARS(120000), '$ 120.000');
   assert.equal(formatARS(0), '$ 0');
+});
+
+test('formatCachet renders A la gorra for a_la_gorra mode and ARS for fijo', () => {
+  assert.equal(formatCachet(0, 'a_la_gorra'), 'A la gorra');
+  assert.equal(formatCachet(80000, 'a_la_gorra'), 'A la gorra');
+  assert.equal(formatCachet(80000, 'fijo'), '$ 80.000');
+  assert.equal(formatCachet(80000), '$ 80.000');
+});
+
+test('sanitizeNumericInput avoids stuck leading zero and preserves empty string', () => {
+  assert.equal(sanitizeNumericInput(''), '');
+  assert.equal(sanitizeNumericInput('0'), '0');
+  assert.equal(sanitizeNumericInput('00'), '0');
+  assert.equal(sanitizeNumericInput('080000'), '80000');
+  assert.equal(sanitizeNumericInput('abc120xyz'), '120');
+  assert.equal(sanitizeNumericInput('00045'), '45');
 });
 
 test('formatDateBA formats ISO dates properly', () => {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Send, DollarSign, Calendar, MapPin, Building2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { MusicianAvailability } from '../../types/index.ts';
-import { formatARS, formatDateBA } from '../../utils/bookingLogic.ts';
+import { formatARS, formatDateBA, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 
 interface DirectOfferModalProps {
   isOpen: boolean;
@@ -17,8 +17,8 @@ export const DirectOfferModal: React.FC<DirectOfferModalProps> = ({
 }) => {
   const { currentVenue, sendDirectOffer } = useApp();
 
-  const [offeredCachet, setOfferedCachet] = useState<number>(
-    availability?.expectedCachetARS || 110000
+  const [offeredCachetText, setOfferedCachetText] = useState<string>(
+    String(availability?.expectedCachetARS || 110000)
   );
   const [note, setNote] = useState<string>('');
 
@@ -26,6 +26,8 @@ export const DirectOfferModal: React.FC<DirectOfferModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const numericCachet = Number(offeredCachetText);
+    if (!Number.isFinite(numericCachet) || numericCachet <= 0) return;
 
     sendDirectOffer(availability.id, {
       venueId: currentVenue.id,
@@ -33,10 +35,10 @@ export const DirectOfferModal: React.FC<DirectOfferModalProps> = ({
       venueNeighborhood: currentVenue.neighborhood,
       venueAvatar: currentVenue.photos[0] || '',
       date: availability.date,
-      offeredCachetARS: Number(offeredCachet),
+      offeredCachetARS: numericCachet,
       note:
         note.trim() ||
-        `¡Hola! Vimos que tienen libre el ${formatDateBA(availability.date)}. Nos gustaría que toquen en ${currentVenue.name}. Les ofrecemos ${formatARS(Number(offeredCachet))} en mano al finalizar el show + cena completa. ¿Les sirve?`,
+        `¡Hola! Vimos que tienen libre el ${formatDateBA(availability.date)}. Nos gustaría que toquen en ${currentVenue.name}. Les ofrecemos ${formatARS(numericCachet)} en mano al finalizar el show + cena completa. ¿Les sirve?`,
     });
 
     onClose();
@@ -106,10 +108,10 @@ export const DirectOfferModal: React.FC<DirectOfferModalProps> = ({
               <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
               <input
                 type="number"
-                min={20000}
-                step={5000}
-                value={offeredCachet}
-                onChange={(e) => setOfferedCachet(Number(e.target.value))}
+                inputMode="numeric"
+                min={1}
+                value={offeredCachetText}
+                onChange={(e) => setOfferedCachetText(sanitizeNumericInput(e.target.value))}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm text-emerald-400 font-bold focus:outline-none focus:border-purple-500"
                 required
               />

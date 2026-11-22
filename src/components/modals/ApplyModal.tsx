@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Send, Music2, CheckCircle, DollarSign, Disc3 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { VenueOpenCall } from '../../types/index.ts';
-import { formatARS, formatDateBA } from '../../utils/bookingLogic.ts';
+import { formatARS, formatDateBA, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 
 interface ApplyModalProps {
   isOpen: boolean;
@@ -13,8 +13,8 @@ interface ApplyModalProps {
 export const ApplyModal: React.FC<ApplyModalProps> = ({ isOpen, onClose, openCall }) => {
   const { currentMusician, applyToOpenCall } = useApp();
 
-  const [proposedCachet, setProposedCachet] = useState<number>(
-    openCall?.cachetAmountARS || currentMusician?.minCachetDefault || 120000
+  const [proposedCachetText, setProposedCachetText] = useState<string>(
+    String(openCall?.cachetAmountARS || currentMusician?.minCachetDefault || 120000)
   );
   const [note, setNote] = useState<string>('');
   const [demoTrack, setDemoTrack] = useState<string>(
@@ -25,6 +25,8 @@ export const ApplyModal: React.FC<ApplyModalProps> = ({ isOpen, onClose, openCal
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const numericCachet = Number(proposedCachetText);
+    if (!Number.isFinite(numericCachet) || numericCachet <= 0) return;
 
     applyToOpenCall(openCall.id, {
       musicianId: currentMusician.id,
@@ -32,7 +34,7 @@ export const ApplyModal: React.FC<ApplyModalProps> = ({ isOpen, onClose, openCal
       musicianAvatar: currentMusician.avatarUrl,
       genres: currentMusician.genres,
       format: currentMusician.format,
-      proposedCachetARS: Number(proposedCachet),
+      proposedCachetARS: numericCachet,
       note:
         note.trim() ||
         `¡Hola! Nos encanta la propuesta de ${openCall.venueName}. Tenemos el repertorio listo y podemos adaptarnos a los horarios indicados.`,
@@ -121,10 +123,10 @@ export const ApplyModal: React.FC<ApplyModalProps> = ({ isOpen, onClose, openCal
               <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="number"
-                min={20000}
-                step={5000}
-                value={proposedCachet}
-                onChange={(e) => setProposedCachet(Number(e.target.value))}
+                inputMode="numeric"
+                min={1}
+                value={proposedCachetText}
+                onChange={(e) => setProposedCachetText(sanitizeNumericInput(e.target.value))}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                 required
               />

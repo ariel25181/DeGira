@@ -5,6 +5,7 @@ import type {
   Review,
   MusicGenre,
   NeighborhoodBA,
+  CachetMode,
 } from '../types/index.ts';
 
 /**
@@ -61,6 +62,26 @@ export function calculateNewBreakdown(
 export function formatARS(amount: number): string {
   if (typeof amount !== 'number' || isNaN(amount)) return '$ 0';
   return '$ ' + amount.toLocaleString('es-AR');
+}
+
+/**
+ * Formats cachet display supporting 'a_la_gorra' mode or fixed ARS amount
+ */
+export function formatCachet(amount: number | undefined, cachetType?: CachetMode): string {
+  if (cachetType === 'a_la_gorra') return 'A la gorra';
+  return formatARS(typeof amount === 'number' ? amount : 0);
+}
+
+/**
+ * Sanitizes string-backed integer numeric inputs:
+ * - allows empty string '' so the user can clear the input without snapping back to "0"
+ * - strips non-digit characters
+ * - strips stuck leading zeros like "080000" -> "80000" while keeping single "0"
+ */
+export function sanitizeNumericInput(raw: string): string {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/^0+(?=\d)/, '');
 }
 
 /**

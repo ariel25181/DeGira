@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Calendar, MapPin, DollarSign, Clock, Plus, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { NeighborhoodBA } from '../../types/index.ts';
+import { sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 
 interface PublishAvailabilityModalProps {
   isOpen: boolean;
@@ -29,8 +30,8 @@ export const PublishAvailabilityModal: React.FC<PublishAvailabilityModalProps> =
 
   const [date, setDate] = useState<string>('2026-10-31');
   const [timeSlot, setTimeSlot] = useState<'tarde' | 'noche' | 'trasnoche' | 'todo_el_dia'>('noche');
-  const [expectedCachet, setExpectedCachet] = useState<number>(
-    currentMusician?.minCachetDefault || 100000
+  const [expectedCachetText, setExpectedCachetText] = useState<string>(
+    String(currentMusician?.minCachetDefault || 100000)
   );
   const [selectedHoods, setSelectedHoods] = useState<NeighborhoodBA[]>([
     'Palermo Soho',
@@ -49,6 +50,8 @@ export const PublishAvailabilityModal: React.FC<PublishAvailabilityModalProps> =
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const numericCachet = Number(expectedCachetText);
+    if (!Number.isFinite(numericCachet) || numericCachet <= 0) return;
 
     publishAvailability({
       musicianId: currentMusician.id,
@@ -59,7 +62,7 @@ export const PublishAvailabilityModal: React.FC<PublishAvailabilityModalProps> =
       date,
       timeSlot,
       preferredNeighborhoods: selectedHoods.length > 0 ? selectedHoods : ['Palermo Soho'],
-      expectedCachetARS: Number(expectedCachet),
+      expectedCachetARS: numericCachet,
       message:
         message.trim() ||
         `Tenemos libre esta fecha para tocar en formato ${currentMusician.format}. Repertorio completo de ${currentMusician.genres.join(', ')}. ¡Contáctennos para coordinar!`,
@@ -137,10 +140,10 @@ export const PublishAvailabilityModal: React.FC<PublishAvailabilityModalProps> =
               <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
               <input
                 type="number"
-                min={20000}
-                step={5000}
-                value={expectedCachet}
-                onChange={(e) => setExpectedCachet(Number(e.target.value))}
+                inputMode="numeric"
+                min={1}
+                value={expectedCachetText}
+                onChange={(e) => setExpectedCachetText(sanitizeNumericInput(e.target.value))}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm text-emerald-400 font-bold focus:outline-none focus:border-cyan-500"
                 required
               />

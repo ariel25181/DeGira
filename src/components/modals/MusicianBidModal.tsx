@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Music,
@@ -17,8 +17,8 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
-import { EventProposal, EventSlot, MusicianInputChannel, MusicianMusicLinks } from '../../types/index.ts';
-import { formatARS } from '../../utils/bookingLogic.ts';
+import { CachetMode, EventProposal, EventSlot, MusicianInputChannel, MusicianMusicLinks } from '../../types/index.ts';
+import { formatARS, formatCachet, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 import { canSubmitBidForSlot, detectMusicianDateClashes } from '../../utils/slotBidding.ts';
 
 interface MusicianBidModalProps {
@@ -36,9 +36,9 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
 }) => {
   const { currentMusician, submitSlotBid, slotBids, eventProposals, liveShows } = useApp();
 
-  const [cachetAgreement, setCachetAgreement] = useState<'agree' | 'counter'>('agree');
-  const [counterCachetARS, setCounterCachetARS] = useState<number>(
-    event?.baseCachetARS || 70000
+  const [cachetAgreement, setCachetAgreement] = useState<'agree' | 'counter' | 'a_la_gorra'>('agree');
+  const [counterCachetText, setCounterCachetText] = useState<string>(
+    String(event?.baseCachetARS || 70000)
   );
   const [musiciansCount, setMusiciansCount] = useState<number>(
     slot?.requiredMusicians || currentMusician?.membersCount || 2
@@ -76,7 +76,8 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
         ];
   });
 
-  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -85,40 +86,50 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (isOpen && event && slot) {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = null;
-      }
-      setCachetAgreement('agree');
-      setCounterCachetARS(event.baseCachetARS || 70000);
-      setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
-      setNote('');
-      setClashConfirmedByUser(false);
-      setSubmitError(null);
-      setSentSuccess(false);
-      setSpotifyUrl(
-        currentMusician?.musicLinks?.spotifyUrl || 'https://open.spotify.com/artist/degira'
-      );
-      setYoutubeUrl(
-        currentMusician?.musicLinks?.youtubeUrl ||
-          currentMusician?.youtubeSampleUrl ||
-          'https://youtube.com/@musica'
-      );
-      setBandcampUrl(currentMusician?.musicLinks?.bandcampUrl || '');
-      setInputList(
-        currentMusician?.defaultInputList && currentMusician.defaultInputList.length > 0
-          ? currentMusician.defaultInputList
-          : [
-              { channel: 1, instrument: 'Voz Principal', micOrDI: 'Micrófono', notes: 'Shure Beta 58' },
-              { channel: 2, instrument: 'Guitarra Acústica', micOrDI: 'Caja Directa (DI)', notes: 'XLR balanceado' },
-              { channel: 3, instrument: 'Bajo', micOrDI: 'Caja Directa (DI)', notes: 'Línea directa' },
-            ]
-      );
+    if (!isOpen || !event || !slot) {
+      initKeyRef.current = null;
+      return;
     }
-  }, [isOpen, event?.id, slot?.id, currentMusician?.id]);
+
+    const nextKey = `${event.id}:${slot.id}:${currentMusician?.id || 'mus'}`;
+    if (initKeyRef.current === nextKey) return;
+    initKeyRef.current = nextKey;
+
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setCachetAgreement('agree');
+    setCounterCachetText(event.baseCachetARS > 0 ? String(event.baseCachetARS) : '70000');
+    setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
+    setNote('');
+    setClashConfirmedByUser(false);
+    setSubmitError(null);
+    setSentSuccess(false);
+    setSpotifyUrl(
+      currentMusician?.musicLinks?.spotifyUrl || 'https://open.spotify.com/artist/degira'
+    );
+    setYoutubeUrl(
+      currentMusician?.musicLinks?.youtubeUrl ||
+        currentMusician?.youtubeSampleUrl ||
+        'https://youtube.com/@musica'
+    );
+    setBandcampUrl(currentMusician?.musicLinks?.bandcampUrl || '');
+    setInputList(
+      currentMusician?.defaultInputList && currentMusician.defaultInputList.length > 0
+        ? currentMusician.defaultInputList
+        : [
+            { channel: 1, instrument: 'Voz Principal', micOrDI: 'Micrófono', notes: 'Shure Beta 58' },
+            { channel: 2, instrument: 'Guitarra Acústica', micOrDI: 'Caja Directa (DI)', notes: 'XLR balanceado' },
+            { channel: 3, instrument: 'Bajo', micOrDI: 'Caja Directa (DI)', notes: 'Línea directa' },
+          ]
+    );
+  }, [isOpen, event, slot, currentMusician]);
 
   if (!isOpen || !event || !slot) return null;
+
+  const isBarEventGorra = event.cachetType === 'a_la_gorra';
+  const barOfferLabel = formatCachet(event.baseCachetARS, event.cachetType);
 
   const addInputChannel = () => {
     const nextCh = inputList.length + 1;
@@ -149,6 +160,17 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       })
     : [];
 
+  const parsedCounterAmount = counterCachetText ? Number(counterCachetText) : 0;
+
+  const selectedCachetLabel =
+    cachetAgreement === 'a_la_gorra'
+      ? 'A la gorra'
+      : cachetAgreement === 'agree'
+      ? barOfferLabel
+      : parsedCounterAmount > 0
+      ? formatARS(parsedCounterAmount)
+      : 'Monto a definir';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -164,13 +186,34 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       return;
     }
 
+    if (cachetAgreement === 'counter' && (!Number.isFinite(parsedCounterAmount) || parsedCounterAmount <= 0)) {
+      setSubmitError('Ingresá un monto de contraoferta mayor a $ 0 o elegí "A la gorra".');
+      return;
+    }
+
     if (detectedClashes.length > 0 && !clashConfirmedByUser) {
       setClashConfirmedByUser(true);
       return;
     }
 
-    const finalProposedCachet =
-      cachetAgreement === 'agree' ? (slot.agreedCachetARS || event.baseCachetARS) : counterCachetARS;
+    let finalCachetType: CachetMode = 'fijo';
+    let finalProposedCachet = 0;
+
+    if (cachetAgreement === 'a_la_gorra') {
+      finalCachetType = 'a_la_gorra';
+      finalProposedCachet = 0;
+    } else if (cachetAgreement === 'agree') {
+      if (isBarEventGorra) {
+        finalCachetType = 'a_la_gorra';
+        finalProposedCachet = 0;
+      } else {
+        finalCachetType = 'fijo';
+        finalProposedCachet = slot.agreedCachetARS || event.baseCachetARS;
+      }
+    } else {
+      finalCachetType = 'fijo';
+      finalProposedCachet = parsedCounterAmount;
+    }
 
     const musicLinks: MusicianMusicLinks = {
       spotifyUrl: spotifyUrl.trim() || undefined,
@@ -178,16 +221,26 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       bandcampUrl: bandcampUrl.trim() || undefined,
     };
 
+    const defaultNote =
+      finalCachetType === 'a_la_gorra'
+        ? isBarEventGorra
+          ? 'De acuerdo con modalidad a la gorra.'
+          : 'Propongo realizar la fecha con modalidad a la gorra.'
+        : cachetAgreement === 'agree'
+        ? 'De acuerdo con el caché propuesto por el bar.'
+        : `Contrapropuesta de caché: ${formatARS(finalProposedCachet)}`;
+
     const result = submitSlotBid({
       eventId: event.id,
       slotId: slot.id,
       proposedCachetARS: finalProposedCachet,
+      cachetType: finalCachetType,
       musiciansCount,
       equipmentProvided,
       equipmentNeeded,
       musicLinks,
       inputList,
-      initialNote: note || (cachetAgreement === 'agree' ? 'De acuerdo con el caché propuesto por el bar.' : `Contrapropuesta de caché: ${formatARS(counterCachetARS)}`),
+      initialNote: note.trim() || defaultNote,
     });
 
     if (!result.ok) {
@@ -209,23 +262,24 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
         
         {/* Header */}
         <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
               <Music className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-100">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-slate-100 truncate">
                 Postular Horario para Tocar
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 truncate">
                 {event.venueName} • Horario {slot.startTime} a {slot.endTime} hs
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Cerrar modal"
-            className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-100"
+            className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-100 shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -242,82 +296,29 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                 ¡Propuesta enviada al bar!
               </h4>
               <p className="text-xs text-slate-400">
-                El anfitrión de {event.venueName} recibirá tu propuesta para aceptar o contraproponer.
+                El anfitrión de {event.venueName} recibirá tu propuesta ({musiciansCount}{' '}
+                {musiciansCount === 1 ? 'músico' : 'músicos'} • {selectedCachetLabel}) para aceptar o contraproponer.
               </p>
             </div>
           ) : (
             <>
               {/* Event details card */}
               <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-400">Fecha del Evento:</span>
                   <strong className="text-slate-200">{event.date}</strong>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-400">Horario del Slot:</span>
                   <span className="text-amber-400 font-bold">{slot.startTime} a {slot.endTime} hs</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-slate-400">Caché propuesto por el bar:</span>
-                  <strong className="text-emerald-400 font-bold">{formatARS(event.baseCachetARS)}</strong>
+                  <strong className="text-emerald-400 font-bold">{barOfferLabel}</strong>
                 </div>
               </div>
 
-              {/* Cachet Agreement / Counter-proposal */}
-              <div className="space-y-2">
-                <label className="font-bold text-slate-200 block">
-                  Propuesta de Caché:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCachetAgreement('agree')}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      cachetAgreement === 'agree'
-                        ? 'bg-emerald-950/30 border-emerald-500 text-emerald-300 font-bold'
-                        : 'bg-slate-950 border-slate-800 text-slate-400'
-                    }`}
-                  >
-                    <div>✓ Acepto Caché Base</div>
-                    <div className="text-[11px] text-emerald-400 font-mono mt-0.5">
-                      {formatARS(event.baseCachetARS)}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCachetAgreement('counter')}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      cachetAgreement === 'counter'
-                        ? 'bg-amber-950/30 border-amber-500 text-amber-300 font-bold'
-                        : 'bg-slate-950 border-slate-800 text-slate-400'
-                    }`}
-                  >
-                    <div>Contraproponer Otra Oferta</div>
-                    <div className="text-[11px] text-amber-400 mt-0.5">
-                      Personalizar monto
-                    </div>
-                  </button>
-                </div>
-
-                {cachetAgreement === 'counter' && (
-                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/30 space-y-1 animate-in fade-in">
-                    <label className="text-[11px] text-slate-400 block">
-                      Monto de contraoferta propuesto (ARS):
-                    </label>
-                    <input
-                      type="number"
-                      step={5000}
-                      min={10000}
-                      value={counterCachetARS}
-                      onChange={(e) => setCounterCachetARS(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-amber-400 focus:border-amber-500 outline-none"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Musicians Count */}
+              {/* Musicians Count (preserved cleanly across any cachet selection) */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-200 block">
                   Cantidad de Músicos en Escenario:
@@ -327,17 +328,104 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                     <button
                       type="button"
                       key={count}
+                      aria-pressed={musiciansCount === count}
+                      data-testid={`musician-count-btn-${count}`}
                       onClick={() => setMusiciansCount(count)}
                       className={`py-2 rounded-xl border font-bold text-xs transition-all ${
                         musiciansCount === count
-                          ? 'bg-amber-500 text-slate-950 border-amber-500'
-                          : 'bg-slate-950 border-slate-800 text-slate-300'
+                          ? 'bg-amber-500 text-slate-950 border-amber-500 shadow'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
                       {count} {count === 1 ? 'músico' : 'músicos'}
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Cachet Agreement / Counter-proposal / A la gorra */}
+              <div className="space-y-2">
+                <label className="font-bold text-slate-200 block">
+                  Propuesta de Caché:
+                </label>
+                <div className={`grid gap-2 ${isBarEventGorra ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
+                  <button
+                    type="button"
+                    data-testid="cachet-mode-agree"
+                    onClick={() => setCachetAgreement('agree')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      cachetAgreement === 'agree'
+                        ? 'bg-emerald-950/30 border-emerald-500 text-emerald-300 font-bold'
+                        : 'bg-slate-950 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div>✓ Acepto Propuesta del Bar</div>
+                    <div className="text-[11px] text-emerald-400 font-mono mt-0.5">
+                      {barOfferLabel}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="cachet-mode-counter"
+                    onClick={() => setCachetAgreement('counter')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      cachetAgreement === 'counter'
+                        ? 'bg-amber-950/30 border-amber-500 text-amber-300 font-bold'
+                        : 'bg-slate-950 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div>Contraproponer Monto Fijo</div>
+                    <div className="text-[11px] text-amber-400 mt-0.5">
+                      Personalizar monto ARS
+                    </div>
+                  </button>
+
+                  {!isBarEventGorra && (
+                    <button
+                      type="button"
+                      data-testid="cachet-mode-gorra"
+                      onClick={() => setCachetAgreement('a_la_gorra')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        cachetAgreement === 'a_la_gorra'
+                          ? 'bg-cyan-950/30 border-cyan-500 text-cyan-300 font-bold'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      <div>🎩 Proponer A la Gorra</div>
+                      <div className="text-[11px] text-cyan-400 mt-0.5">
+                        Aporte libre del público
+                      </div>
+                    </button>
+                  )}
+                </div>
+
+                {cachetAgreement === 'counter' && (
+                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/30 space-y-1 animate-in fade-in">
+                    <label
+                      htmlFor="musician-bid-counter-input"
+                      className="text-[11px] text-slate-400 block"
+                    >
+                      Monto de contraoferta propuesto (ARS):
+                    </label>
+                    <input
+                      id="musician-bid-counter-input"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      placeholder="Ej: 80000"
+                      value={counterCachetText}
+                      onChange={(e) => setCounterCachetText(sanitizeNumericInput(e.target.value))}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-amber-400 focus:border-amber-500 outline-none"
+                    />
+                  </div>
+                )}
+
+                {cachetAgreement === 'a_la_gorra' && (
+                  <div className="p-3 bg-cyan-950/20 rounded-xl border border-cyan-500/30 text-[11px] text-cyan-200 animate-in fade-in">
+                    Tu propuesta se enviará como <strong>Caché A la gorra</strong> ($ 0 fijo del bar, recaudación por gorra del público).
+                  </div>
+                )}
               </div>
 
               {/* Equipment Provided by Musician */}
@@ -518,6 +606,19 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                   <span>{submitError}</span>
                 </div>
               )}
+
+              {/* Live Confirmation Summary before Submit */}
+              <div
+                data-testid="musician-bid-summary"
+                className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+              >
+                <span className="text-slate-400">
+                  Resumen: <strong className="text-slate-100">{musiciansCount} {musiciansCount === 1 ? 'músico' : 'músicos'}</strong>
+                </span>
+                <span className="text-emerald-400 font-bold">
+                  Caché: {selectedCachetLabel}
+                </span>
+              </div>
 
               <button
                 type="submit"

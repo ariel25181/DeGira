@@ -13,7 +13,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
-import { EventSlot, MusicGenre, NeighborhoodBA } from '../../types/index.ts';
+import { EventSlot, MusicGenre, NeighborhoodBA, CachetMode } from '../../types/index.ts';
+import { formatCachet, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 import { makeUniqueId } from '../../utils/slotBidding.ts';
 
 interface CreateEventProposalModalProps {
@@ -49,16 +50,18 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
   const [date, setDate] = useState('2026-11-28');
   const [startTime, setStartTime] = useState('20:30');
   const [endTime, setEndTime] = useState('01:00');
-  const [totalCapacity, setTotalCapacity] = useState(80);
-  const [baseCachetARS, setBaseCachetARS] = useState(70000);
-  const [ticketPriceARS, setTicketPriceARS] = useState(8000);
+  const [totalCapacityText, setTotalCapacityText] = useState('80');
+  const [cachetType, setCachetType] = useState<CachetMode>('fijo');
+  const [baseCachetText, setBaseCachetText] = useState('70000');
+  const [ticketPriceText, setTicketPriceText] = useState('8000');
   const [selectedGenres, setSelectedGenres] = useState<MusicGenre[]>(['Jazz', 'Blues & Soul']);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Rider details
   const [stageSize, setStageSize] = useState('6x4 metros');
   const [soundSystem, setSoundSystem] = useState('Consola digital 16 canales, 2 cajas activas 1000W');
-  const [micCount, setMicCount] = useState(4);
+  const [micCountText, setMicCountText] = useState('4');
   const [lighting, setLighting] = useState('Tachos LED RGB dimeables y frontales cálidas');
   const [backline, setBackline] = useState('Batería armada, ampli Fender Twin Reverb, ampli bajo Ampeg');
 
@@ -67,7 +70,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       const t = currentVenue.defaultRiderTemplate;
       setStageSize(t.stageSize);
       setSoundSystem(t.soundSystem);
-      setMicCount(t.micCount);
+      setMicCountText(String(t.micCount || 4));
       setLighting(t.lighting);
       setBackline(t.backline.join(', '));
     }
@@ -83,6 +86,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
     if (isOpen && currentVenue?.id) {
       setSelectedVenueId(currentVenue.id);
       setIsCreatingNewVenue(false);
+      setFormError(null);
     }
   }, [isOpen, currentVenue?.id]);
 
@@ -114,6 +118,27 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
+    const parsedCapacity = Number(totalCapacityText);
+    if (!Number.isFinite(parsedCapacity) || parsedCapacity < 1) {
+      setFormError('Ingresá una capacidad de sala válida (mínimo 1 persona).');
+      return;
+    }
+
+    const parsedBaseCachet = cachetType === 'a_la_gorra' ? 0 : Number(baseCachetText);
+    if (cachetType === 'fijo' && (!Number.isFinite(parsedBaseCachet) || parsedBaseCachet <= 0)) {
+      setFormError('Ingresá un monto de caché válido en ARS o seleccioná "A la gorra".');
+      return;
+    }
+
+    const parsedTicketPrice = ticketPriceText === '' ? 0 : Number(ticketPriceText);
+    if (!Number.isFinite(parsedTicketPrice) || parsedTicketPrice < 0) {
+      setFormError('Ingresá un precio de entrada válido (0 o mayor).');
+      return;
+    }
+
+    const parsedMicCount = Math.max(1, Number(micCountText) || 4);
 
     const formattedSlots: EventSlot[] = slots.map((s) => ({
       id: s.id,
@@ -126,7 +151,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
     const newRider = {
       stageSize,
       soundSystem,
-      micCount,
+      micCount: parsedMicCount,
       backline: backline.split(',').map((s) => s.trim()),
       lighting,
     };
@@ -140,7 +165,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
         neighborhood: newVenueNeighborhood,
         coverPhoto: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=600&auto=format&fit=crop&q=80',
         photos: ['https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=600&auto=format&fit=crop&q=80'],
-        capacity: totalCapacity,
+        capacity: parsedCapacity,
         type: 'Cervecería',
         bio: `Nuevo local y sala de música en vivo en ${newVenueNeighborhood}.`,
         backline: ['Escenario', 'Consola de sonido', 'Barra'],
@@ -164,9 +189,10 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       date,
       startTime,
       endTime,
-      totalCapacity,
-      baseCachetARS,
-      ticketPriceARS,
+      totalCapacity: parsedCapacity,
+      baseCachetARS: parsedBaseCachet,
+      cachetType,
+      ticketPriceARS: parsedTicketPrice,
       targetGenres: selectedGenres.length > 0 ? selectedGenres : ['Jazz'],
       slots: formattedSlots,
       rider: newRider,
@@ -321,8 +347,8 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
           </div>
 
           {/* Date & Global Times */}
-          <div className="grid grid-cols-3 gap-2">
-            <div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="col-span-2 sm:col-span-1">
               <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                 Fecha
               </label>
@@ -360,49 +386,92 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
             </div>
           </div>
 
-          {/* Capacity, Cachet & Ticket Price */}
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                Capacidad Sala
-              </label>
-              <input
-                type="number"
-                min={10}
-                max={500}
-                required
-                value={totalCapacity}
-                onChange={(e) => setTotalCapacity(Number(e.target.value))}
-                className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-slate-100 focus:border-amber-500 outline-none"
-              />
+          {/* Cachet Mode (Fijo vs A la gorra) & Capacity / Ticket Price */}
+          <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
+            <label className="block text-[11px] font-bold text-slate-300">
+              Modalidad de Caché Músico:
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                data-testid="create-event-cachet-fijo"
+                onClick={() => setCachetType('fijo')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                  cachetType === 'fijo'
+                    ? 'bg-amber-500 text-slate-950 border-amber-500 shadow'
+                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                Monto Fijo (ARS)
+              </button>
+              <button
+                type="button"
+                data-testid="create-event-cachet-gorra"
+                onClick={() => setCachetType('a_la_gorra')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                  cachetType === 'a_la_gorra'
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-500 shadow'
+                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                🎩 A la gorra
+              </button>
             </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                Caché Músico
-              </label>
-              <input
-                type="number"
-                step={5000}
-                min={20000}
-                required
-                value={baseCachetARS}
-                onChange={(e) => setBaseCachetARS(Number(e.target.value))}
-                className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-amber-400 focus:border-amber-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                Entrada Público
-              </label>
-              <input
-                type="number"
-                step={500}
-                min={0}
-                required
-                value={ticketPriceARS}
-                onChange={(e) => setTicketPriceARS(Number(e.target.value))}
-                className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-emerald-400 focus:border-amber-500 outline-none"
-              />
+
+            {cachetType === 'a_la_gorra' && (
+              <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[11px] text-cyan-200">
+                Evento publicado como <strong>{formatCachet(0, 'a_la_gorra')}</strong> ($ 0 caché fijo del bar; el público aporta a la gorra).
+              </div>
+            )}
+
+            <div className={`grid gap-2 ${cachetType === 'fijo' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                  Capacidad Sala
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={1000}
+                  required
+                  value={totalCapacityText}
+                  onChange={(e) => setTotalCapacityText(sanitizeNumericInput(e.target.value))}
+                  className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-slate-100 focus:border-amber-500 outline-none"
+                />
+              </div>
+              {cachetType === 'fijo' && (
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                    Caché Músico (ARS)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    required
+                    placeholder="Ej: 70000"
+                    value={baseCachetText}
+                    onChange={(e) => setBaseCachetText(sanitizeNumericInput(e.target.value))}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-amber-400 focus:border-amber-500 outline-none"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                  Entrada Público
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  required
+                  placeholder="0"
+                  value={ticketPriceText}
+                  onChange={(e) => setTicketPriceText(sanitizeNumericInput(e.target.value))}
+                  className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-emerald-400 focus:border-amber-500 outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -530,10 +599,11 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
                 <label className="text-[10px] text-slate-400 block">Cantidad de Micrófonos</label>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={16}
-                  value={micCount}
-                  onChange={(e) => setMicCount(Number(e.target.value))}
+                  value={micCountText}
+                  onChange={(e) => setMicCountText(sanitizeNumericInput(e.target.value))}
                   className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100"
                 />
               </div>
@@ -582,6 +652,12 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
               </label>
             </div>
           </div>
+
+          {formError && (
+            <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-200 font-semibold">
+              {formError}
+            </div>
+          )}
 
           <button
             type="submit"

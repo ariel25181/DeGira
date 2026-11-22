@@ -19,10 +19,10 @@ import {
   Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
-import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import { formatARS, formatCachet, formatDateBA, sanitizeNumericInput } from '../utils/bookingLogic.ts';
 import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
 import { detectMusicianDateClashes, isActiveSlotBid } from '../utils/slotBidding.ts';
-import type { EventProposal } from '../types/index.ts';
+import type { CachetMode, EventProposal } from '../types/index.ts';
 
 interface AgreementsAndReviewsViewProps {
   onOpenReviewModal: (params: {
@@ -75,7 +75,9 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     success: boolean;
   } | null>(null);
   const [counterInputId, setCounterInputId] = useState<string | null>(null);
-  const [counterAmount, setCounterAmount] = useState<number>(80000);
+  const [counterAmountText, setCounterAmountText] = useState<string>('80000');
+  const [counterCachetType, setCounterCachetType] = useState<CachetMode>('fijo');
+  const [counterMusiciansCount, setCounterMusiciansCount] = useState<number>(2);
   const [counterNote, setCounterNote] = useState<string>('');
   const [confirmRetractBidId, setConfirmRetractBidId] = useState<string | null>(null);
   const [negError, setNegError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   useEffect(() => {
     setCounterInputId(null);
     setCounterNote('');
+    setCounterCachetType('fijo');
     setRetractionFeedback(null);
     setConfirmRetractBidId(null);
     setNegError(null);
@@ -352,8 +355,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                       </div>
 
                       <div className="text-right shrink-0">
-                        <span className="font-extrabold text-emerald-400 text-sm block">
-                          {formatARS(bid.proposedCachetARS)}
+                        <span className="font-extrabold text-emerald-400 text-sm block whitespace-nowrap">
+                          {formatCachet(bid.proposedCachetARS, bid.cachetType)}
                         </span>
                         <span
                           className={`mt-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] inline-block uppercase border ${
@@ -454,8 +457,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     {bid.history.length > 0 && (
                       <div className="space-y-1 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-[11px]">
                         {bid.history.map((h) => (
-                          <div key={h.id} className="text-slate-300">
-                            <strong className="text-amber-400">{h.actorName}:</strong> {h.note} ({formatARS(h.cachetARS)})
+                          <div key={h.id} className="text-slate-300 break-words">
+                            <strong className="text-amber-400">{h.actorName}:</strong> {h.note} ({formatCachet(h.cachetARS, h.cachetType)})
                           </div>
                         ))}
                       </div>
@@ -483,8 +486,14 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 
                           <button
                             onClick={() => {
-                              setCounterAmount(bid.proposedCachetARS);
+                              setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
+                              setCounterAmountText(
+                                bid.proposedCachetARS > 0
+                                  ? String(bid.proposedCachetARS)
+                                  : String(event?.baseCachetARS || 70000)
+                              );
                               setCounterNote('');
+                              setNegError(null);
                               setCounterInputId(isCounteringThis ? null : bid.id);
                             }}
                             className="py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
@@ -504,16 +513,46 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
 
                         {isCounteringThis && (
                           <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
-                            <div className="flex items-center gap-2">
-                              <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
-                              <input
-                                type="number"
-                                step={5000}
-                                value={counterAmount}
-                                onChange={(e) => setCounterAmount(Number(e.target.value))}
-                                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
-                              />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCounterCachetType('fijo')}
+                                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                  counterCachetType === 'fijo'
+                                    ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                Monto Fijo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCounterCachetType('a_la_gorra')}
+                                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                  counterCachetType === 'a_la_gorra'
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-500'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                🎩 A la gorra
+                              </button>
                             </div>
+
+                            {counterCachetType === 'fijo' && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  placeholder="Ej: 80000"
+                                  value={counterAmountText}
+                                  onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
+                                  className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
+                                />
+                              </div>
+                            )}
+
                             <input
                               type="text"
                               placeholder="Nota de contrapropuesta para el músico..."
@@ -523,11 +562,18 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             />
                             <button
                               onClick={() => {
+                                const numericAmount =
+                                  counterCachetType === 'a_la_gorra'
+                                    ? 0
+                                    : counterAmountText === ''
+                                    ? 0
+                                    : Number(counterAmountText);
                                 const res = respondToSlotBid(
                                   bid.id,
                                   'counter',
-                                  counterAmount,
-                                  counterNote || 'Contraoferta enviada por el bar.'
+                                  numericAmount,
+                                  counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el bar.' : 'Contraoferta enviada por el bar.'),
+                                  { cachetType: counterCachetType }
                                 );
                                 if (!res.ok) {
                                   setNegError(res.message || 'No se pudo enviar la contraoferta.');
@@ -944,7 +990,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     </div>
 
                     {/* Schedule & Cachet info */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-950/70 rounded-xl border border-slate-800 text-xs">
                       <div>
                         <span className="text-slate-400 text-[10px] uppercase font-semibold block">Fecha</span>
                         <strong className="text-slate-200">{formatDateBA(eventDateStr)}</strong>
@@ -956,8 +1002,16 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                         </strong>
                       </div>
                       <div>
+                        <span className="text-slate-400 text-[10px] uppercase font-semibold block">Músicos</span>
+                        <strong className="text-slate-200 font-bold">
+                          {bid.musiciansCount} {bid.musiciansCount === 1 ? 'músico' : 'músicos'}
+                        </strong>
+                      </div>
+                      <div>
                         <span className="text-slate-400 text-[10px] uppercase font-semibold block">Caché Propuesto</span>
-                        <strong className="text-emerald-400 font-black">{formatARS(bid.proposedCachetARS)}</strong>
+                        <strong className="text-emerald-400 font-black">
+                          {formatCachet(bid.proposedCachetARS, bid.cachetType)}
+                        </strong>
                       </div>
                     </div>
 
@@ -993,7 +1047,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                           {bid.status === 'contraoferta_bar' && (
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs text-cyan-300 font-bold">
-                                Contraoferta: {formatARS(bid.proposedCachetARS)}
+                                Contraoferta: {formatCachet(bid.proposedCachetARS, bid.cachetType)}
                               </span>
                               <button
                                 onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Contraoferta aceptada por el músico.')}
@@ -1003,8 +1057,15 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                               </button>
                               <button
                                 onClick={() => {
-                                  setCounterAmount(bid.proposedCachetARS);
+                                  setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
+                                  setCounterAmountText(
+                                    bid.proposedCachetARS > 0
+                                      ? String(bid.proposedCachetARS)
+                                      : String(event?.baseCachetARS || 70000)
+                                  );
+                                  setCounterMusiciansCount(bid.musiciansCount || 1);
                                   setCounterNote('');
+                                  setNegError(null);
                                   setCounterInputId(counterInputId === bid.id ? null : bid.id);
                                 }}
                                 className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
@@ -1070,18 +1131,67 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                         </div>
 
                         {bid.status === 'contraoferta_bar' && counterInputId === bid.id && (
-                          <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
-                            <div className="flex items-center gap-2">
-                              <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
-                              <input
-                                type="number"
-                                step={5000}
-                                min={1000}
-                                value={counterAmount}
-                                onChange={(e) => setCounterAmount(Number(e.target.value))}
-                                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold"
-                              />
+                          <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2.5 animate-in fade-in">
+                            <div className="space-y-1">
+                              <span className="text-[11px] text-slate-400 block">Cantidad de músicos en escenario:</span>
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {[1, 2, 3, 4].map((cnt) => (
+                                  <button
+                                    key={cnt}
+                                    type="button"
+                                    onClick={() => setCounterMusiciansCount(cnt)}
+                                    className={`py-1 rounded-lg border text-[11px] font-bold ${
+                                      counterMusiciansCount === cnt
+                                        ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                        : 'bg-slate-900 text-slate-300 border-slate-700'
+                                    }`}
+                                  >
+                                    {cnt} {cnt === 1 ? 'músico' : 'músicos'}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCounterCachetType('fijo')}
+                                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                  counterCachetType === 'fijo'
+                                    ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                Monto Fijo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCounterCachetType('a_la_gorra')}
+                                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                  counterCachetType === 'a_la_gorra'
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-500'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                🎩 Proponer A la gorra
+                              </button>
+                            </div>
+
+                            {counterCachetType === 'fijo' && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  placeholder="Ej: 80000"
+                                  value={counterAmountText}
+                                  onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
+                                  className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
+                                />
+                              </div>
+                            )}
+
                             <input
                               type="text"
                               placeholder="Nota de contrapropuesta para el bar..."
@@ -1092,11 +1202,18 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             <button
                               type="button"
                               onClick={() => {
+                                const numericAmount =
+                                  counterCachetType === 'a_la_gorra'
+                                    ? 0
+                                    : counterAmountText === ''
+                                    ? 0
+                                    : Number(counterAmountText);
                                 const res = respondToSlotBid(
                                   bid.id,
                                   'counter',
-                                  counterAmount,
-                                  counterNote || 'Contraoferta enviada por el músico.'
+                                  numericAmount,
+                                  counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el músico.' : 'Contraoferta enviada por el músico.'),
+                                  { cachetType: counterCachetType, musiciansCount: counterMusiciansCount }
                                 );
                                 if (!res.ok) {
                                   setNegError(res.message || 'No se pudo enviar la contraoferta.');

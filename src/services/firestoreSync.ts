@@ -61,6 +61,10 @@ function sanitizeSlots(slots: EventSlot[]): Record<string, any>[] {
       assignedMusicianId: s.assignedMusicianId ? clampString(s.assignedMusicianId, 128) : undefined,
       assignedMusicianName: s.assignedMusicianName ? clampString(s.assignedMusicianName, 140) : undefined,
       agreedCachetARS: s.agreedCachetARS !== undefined ? Math.max(0, Number(s.agreedCachetARS) || 0) : undefined,
+      agreedCachetType:
+        s.agreedCachetType === 'a_la_gorra' || s.agreedCachetType === 'fijo'
+          ? s.agreedCachetType
+          : undefined,
       status: s.status || 'libre',
     })
   );
@@ -138,7 +142,8 @@ function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<st
     endTime: clampString(ev.endTime, 10, '23:30'),
     totalCapacity: Math.max(1, Math.min(10000, Number(ev.totalCapacity) || 80)),
     remainingCapacity: Math.max(0, Math.min(Number(ev.totalCapacity) || 80, Number(ev.remainingCapacity) ?? Number(ev.totalCapacity) ?? 80)),
-    baseCachetARS: Math.max(0, Number(ev.baseCachetARS) || 0),
+    baseCachetARS: ev.cachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(ev.baseCachetARS) || 0),
+    cachetType: ev.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo',
     ticketPriceARS: ev.ticketPriceARS !== undefined ? Math.max(0, Number(ev.ticketPriceARS) || 0) : undefined,
     targetGenres: clampStringArray(ev.targetGenres, 12, 60),
     slots: sanitizeSlots(ev.slots),
@@ -167,6 +172,7 @@ function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<st
 }
 
 function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<string, any> {
+  const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
   return stripUndefined({
     id: clampString(bid.id, 128),
     eventId: clampString(bid.eventId, 128),
@@ -174,7 +180,9 @@ function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<strin
     musicianId: clampString(bid.musicianId, 128),
     musicianName: clampString(bid.musicianName, 140, 'Músico DeGira'),
     musicianAvatar: bid.musicianAvatar ? clampString(bid.musicianAvatar, 600) : undefined,
-    proposedCachetARS: Math.max(0, Number(bid.proposedCachetARS) || 0),
+    proposedCachetARS:
+      safeCachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(bid.proposedCachetARS) || 0),
+    cachetType: safeCachetType,
     musiciansCount: Math.max(1, Math.min(30, Number(bid.musiciansCount) || 1)),
     equipmentProvided: clampString(bid.equipmentProvided, 400, 'Instrumentos propios'),
     equipmentNeeded: clampString(bid.equipmentNeeded, 400, 'Sonido de sala'),
@@ -191,6 +199,8 @@ function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<strin
         actor: h.actor,
         actorName: clampString(h.actorName, 140),
         cachetARS: Math.max(0, Number(h.cachetARS) || 0),
+        cachetType:
+          h.cachetType === 'a_la_gorra' || h.cachetType === 'fijo' ? h.cachetType : undefined,
         note: clampString(h.note, 400),
         createdAt: clampString(h.createdAt, 60),
       })
@@ -367,9 +377,13 @@ export async function syncSlotBidMusicianUpdate(
       await setDoc(ref, sanitizeSlotBidPayload(bid, uid));
       return;
     }
+    const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
     const patch = stripUndefined({
       status: bid.status,
-      proposedCachetARS: Math.max(0, Number(bid.proposedCachetARS) || 0),
+      proposedCachetARS:
+        safeCachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(bid.proposedCachetARS) || 0),
+      cachetType: safeCachetType,
+      musiciansCount: Math.max(1, Math.min(30, Number(bid.musiciansCount) || 1)),
       history: bid.history,
       reminderSentAt: bid.reminderSentAt,
       reminderCount: bid.reminderCount,
@@ -392,6 +406,9 @@ export async function syncSlotBidBarResponse(
   try {
     const ref = doc(db, 'slotBids', bid.id);
     const snap = await getDoc(ref);
+    const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+    const safeCachetARS =
+      safeCachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(bid.proposedCachetARS) || 0);
     if (!snap.exists()) {
       if (parentEvent) {
         await ensureEventProposalInCloud(parentEvent, uid);
@@ -400,7 +417,8 @@ export async function syncSlotBidBarResponse(
       if (bid.status !== 'pendiente_bar') {
         await updateDoc(ref, {
           status: bid.status,
-          proposedCachetARS: Math.max(0, Number(bid.proposedCachetARS) || 0),
+          proposedCachetARS: safeCachetARS,
+          cachetType: safeCachetType,
           history: bid.history,
           updatedAtTimestamp: serverTimestamp(),
         });
@@ -409,7 +427,8 @@ export async function syncSlotBidBarResponse(
     }
     await updateDoc(ref, {
       status: bid.status,
-      proposedCachetARS: Math.max(0, Number(bid.proposedCachetARS) || 0),
+      proposedCachetARS: safeCachetARS,
+      cachetType: safeCachetType,
       history: bid.history,
       updatedAtTimestamp: serverTimestamp(),
     });

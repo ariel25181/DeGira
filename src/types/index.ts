@@ -224,6 +224,8 @@ export interface PublicUserProfile {
 // NUEVOS TIPOS ARQUITECTURA INTEGRAL DEGIRA
 // ==========================================
 
+export type CachetMode = 'fijo' | 'a_la_gorra';
+
 export type EventStatus = 'propuesta' | 'cancelada' | 'para_publicar' | 'publicada' | 'agotada';
 
 export interface EventSlot {
@@ -235,6 +237,7 @@ export interface EventSlot {
   assignedMusicianId?: string;
   assignedMusicianName?: string;
   agreedCachetARS?: number;
+  agreedCachetType?: CachetMode;
   status: 'libre' | 'negociando' | 'confirmado';
 }
 
@@ -260,6 +263,7 @@ export interface EventProposal {
   totalCapacity: number; // Capacidad de sala (personas)
   remainingCapacity: number; // Disponibilidad remanente
   baseCachetARS: number;
+  cachetType?: CachetMode; // 'fijo' (default) o 'a_la_gorra'
   ticketPriceARS?: number; // Precio de entrada/reserva (default 4500 o similar)
   targetGenres: MusicGenre[];
   slots: EventSlot[];
@@ -278,6 +282,7 @@ export interface SlotBidHistoryEntry {
   actor: 'bar' | 'musico';
   actorName: string;
   cachetARS: number;
+  cachetType?: CachetMode;
   note: string;
   createdAt: string;
 }
@@ -290,6 +295,7 @@ export interface MusicianSlotBid {
   musicianName: string;
   musicianAvatar: string;
   proposedCachetARS: number;
+  cachetType?: CachetMode;
   musiciansCount: number;
   equipmentProvided: string; // lo que el músico lleva
   equipmentNeeded: string;   // lo que le pide al bar
