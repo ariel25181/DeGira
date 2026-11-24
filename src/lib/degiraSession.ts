@@ -16,7 +16,33 @@ export interface StoredSession {
 }
 
 const SESSION_KEY = 'degira:active_session:v2';
+const HIDE_TOUR_KEY = 'degira:hide_tour:v1';
 const DURATION_24H_MS = 24 * 60 * 60 * 1000;
+
+export function getHideTourPreference(): boolean {
+  try {
+    return localStorage.getItem(HIDE_TOUR_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setHideTourPreference(hide: boolean): void {
+  try {
+    if (hide) {
+      localStorage.setItem(HIDE_TOUR_KEY, 'true');
+    } else {
+      localStorage.removeItem(HIDE_TOUR_KEY);
+    }
+  } catch {
+    // Storage deshabilitado o restringido
+  }
+}
+
+export function shouldShowTourOnOnboarding(startAtTour: boolean): boolean {
+  if (startAtTour) return true;
+  return !getHideTourPreference();
+}
 
 export function getActiveSession(): StoredSession | null {
   try {

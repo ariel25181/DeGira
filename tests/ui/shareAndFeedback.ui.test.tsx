@@ -124,4 +124,64 @@ describe('FeedbackModal Component (Wrench tool)', () => {
     screen.getByText('Crear Issue en GitHub');
     screen.getByText('Copiar Reporte');
   });
+
+  it('displays automatic screenshot, supports retake/upload photos, and saves them to localStorage', async () => {
+    localStorage.clear();
+    let retakeCalls = 0;
+
+    await act(async () => {
+      render(
+        <FeedbackModal
+          isOpen={true}
+          onClose={() => {}}
+          currentRole="musico"
+          currentTab="convocatorias"
+          initialScreenshot="data:image/png;base64,INITIALSHOT"
+          onRetakeScreenshot={() => {
+            retakeCalls += 1;
+            return 'data:image/png;base64,RETAKENSHOT';
+          }}
+        />
+      );
+    });
+
+    // Automatic screenshot preview shown
+    const previewImg = screen.getByAltText('Captura automática de pantalla') as HTMLImageElement;
+    assert.ok(previewImg.src.includes('INITIALSHOT'));
+
+    // Retake updates screenshot
+    await act(async () => {
+      fireEvent.click(screen.getByText('Recapturar'));
+    });
+    assert.strictEqual(retakeCalls, 1);
+    assert.ok((screen.getByAltText('Captura automática de pantalla') as HTMLImageElement).src.includes('RETAKENSHOT'));
+
+    // Upload extra photo file
+    const fileInput = screen.getByTestId('feedback-photo-input') as HTMLInputElement;
+    const fakeFile = new File(['hello'], 'bug.png', { type: 'image/png' });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [fakeFile] } });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    screen.getByAltText('Foto adjunta 1');
+
+    // Fill and submit
+    fireEvent.change(screen.getByPlaceholderText(/Ej: Error al filtrar shows/), {
+      target: { value: 'Bug con captura' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Describí qué estabas haciendo/), {
+      target: { value: 'Adjunto captura automática y foto extra' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Enviar Reporte'));
+    });
+
+    const saved = JSON.parse(localStorage.getItem('suenaba:feedback_reports:v1') || '[]');
+    assert.strictEqual(saved.length, 1);
+    assert.ok(saved[0].screenshot.includes('RETAKENSHOT'));
+    assert.strictEqual(saved[0].attachments.length, 1);
+  });
 });
+

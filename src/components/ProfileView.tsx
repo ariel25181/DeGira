@@ -1172,13 +1172,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <h1 className="text-2xl font-extrabold text-slate-100 font-display">
                 {isVenue ? venueProfile?.name : musicianProfile?.stageName}
               </h1>
-              <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
-                <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                <span>
-                  {isVenue
-                    ? `${venueProfile?.address}, ${venueProfile?.neighborhood}`
-                    : `Buenos Aires (${musicianProfile?.genres.join(', ')})`}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 mt-1">
+                <span className="inline-flex items-center space-x-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>
+                    {isVenue
+                      ? `${venueProfile?.address}, ${venueProfile?.neighborhood}`
+                      : `Buenos Aires (${musicianProfile?.genres.join(', ')})`}
+                  </span>
                 </span>
+                {isVenue && venueProfile?.address && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      `${venueProfile.name}, ${venueProfile.address}, ${venueProfile.neighborhood}, Buenos Aires`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[11px] font-semibold transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Ver en Google Maps</span>
+                  </a>
+                )}
               </div>
             </div>
 

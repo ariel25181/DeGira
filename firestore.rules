@@ -270,7 +270,7 @@ service cloud.firestore {
         && incoming().ownerUid == existing().ownerUid
         && incoming().createdAtTimestamp == existing().createdAtTimestamp
         && incoming().updatedAtTimestamp == request.time
-        && (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().id))
+        && (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().id) || existing().visibility == 'public')
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
           'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
@@ -302,7 +302,7 @@ service cloud.firestore {
         && (
           // Action 1: Bar Owner or shared test Bar Account manages event
           (
-            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId))
+            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId) || existing().visibility == 'public')
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'slots', 'status', 'remainingCapacity', 'cachetPaid', 'cachetPaidAt',
               'feedbackSentAt', 'updatedAtTimestamp'
@@ -396,6 +396,7 @@ service cloud.firestore {
             && (
               get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.ownerUid == request.auth.uid
               || isDemoVenueId(get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.venueId)
+              || get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.visibility == 'public'
             )
             && (
               incoming().status in ['contraoferta_bar', 'rechazada']

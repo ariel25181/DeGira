@@ -14,6 +14,7 @@ import {
   AlertCircle,
   CheckCircle,
   X,
+  ExternalLink,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { LiveShowConfirmed, EventProposal, MusicGenre } from '../types/index.ts';
@@ -306,6 +307,22 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         </>
                       )}
                     </p>
+                    {event.venueAddress && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1">
+                        <span>{event.venueAddress}</span>
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${event.venueName}, ${event.venueAddress}, ${event.venueNeighborhood}, Buenos Aires`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[11px] font-semibold transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Ver en Google Maps</span>
+                        </a>
+                      </div>
+                    )}
                   </div>
 
                   {/* Availability Counter (Req 7: Disponibilidad remanente y estado agotada) */}
@@ -531,9 +548,24 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     <h3 className="text-base font-bold text-slate-100 font-display">
                       {inspectingVenueEvent.venueName}
                     </h3>
-                    <p className="text-xs text-slate-400">
-                      {inspectingVenueEvent.venueNeighborhood} • {inspectingVenueEvent.venueAddress}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+                      <span>
+                        {inspectingVenueEvent.venueNeighborhood} • {inspectingVenueEvent.venueAddress}
+                      </span>
+                      {inspectingVenueEvent.venueAddress && (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${inspectingVenueEvent.venueName}, ${inspectingVenueEvent.venueAddress}, ${inspectingVenueEvent.venueNeighborhood}, Buenos Aires`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[11px] font-semibold transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Ver en Google Maps</span>
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <button

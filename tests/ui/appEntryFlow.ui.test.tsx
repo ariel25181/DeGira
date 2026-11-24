@@ -121,6 +121,74 @@ describe('OnboardingFlow Step-by-Step Flow', () => {
     });
     assert.strictEqual(completedRole, 'musico');
   });
+
+  it('Paso 3: checking "No volver a mostrar este tour al ingresar" skips Step 3 on future logins while explicit Tour still opens', async () => {
+    localStorage.clear();
+    let completedRole: UserRole | null = null;
+
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <OnboardingFlow onComplete={(r) => { completedRole = r; }} />
+        </SessionProvider>
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Soy Músico o Banda'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Ingreso rápido de demostración/));
+    });
+
+    const hideCheckbox = screen.getByTestId('tour-hide-checkbox') as HTMLInputElement;
+    assert.strictEqual(hideCheckbox.checked, false);
+
+    await act(async () => {
+      fireEvent.click(hideCheckbox);
+    });
+    assert.strictEqual(hideCheckbox.checked, true);
+    assert.strictEqual(localStorage.getItem('degira:hide_tour:v1'), 'true');
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Saltar tour'));
+    });
+    assert.strictEqual(completedRole, 'musico');
+
+    cleanup();
+    completedRole = null;
+
+    // Second onboarding: Step 2 completes straight to onComplete without rendering Step 3
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <OnboardingFlow onComplete={(r) => { completedRole = r; }} />
+        </SessionProvider>
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Soy Anfitrión de Bar'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Ingreso rápido de demostración/));
+    });
+
+    assert.strictEqual(completedRole, 'bar');
+    assert.strictEqual(screen.queryByText(/Tour Guiado/), null);
+
+    cleanup();
+
+    // Explicit Tour button (startAtTour=true) still opens the tour
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <OnboardingFlow onComplete={() => {}} startAtTour={true} initialRole="bar" />
+        </SessionProvider>
+      );
+    });
+    screen.getByText(/Tour Guiado: Anfitrión de Bar/);
+  });
 });
 
 describe('ActivityToolbar & RoleIconMenuModal', () => {

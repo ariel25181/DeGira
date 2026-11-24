@@ -542,9 +542,6 @@ export const INITIAL_EVENT_PROPOSALS: EventProposal[] = [
         endTime: '22:15',
         requiredMusicians: 1,
         genrePreference: 'Indie Acústico',
-        assignedMusicianId: 'mus-2',
-        assignedMusicianName: 'Músico Test 2',
-        agreedCachetARS: 100000,
         status: 'negociando',
       },
       {

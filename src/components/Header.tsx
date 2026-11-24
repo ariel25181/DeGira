@@ -65,14 +65,14 @@ export const Header: React.FC<HeaderProps> = ({
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 px-3 sm:px-4 py-2.5">
-      <div className="max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2">
+    <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 px-2.5 sm:px-4 py-2.5">
+      <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
         {/* Logo */}
         <div
           onClick={() => onSelectTab(role === 'espectador' ? 'cartelera' : 'convocatorias')}
-          className="flex items-center space-x-2 cursor-pointer group min-w-0"
+          className="flex items-center gap-1.5 sm:gap-2 cursor-pointer group min-w-0 flex-1"
         >
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-slate-900 border-2 border-amber-500/60 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0 relative">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden bg-slate-900 border-2 border-amber-500/60 shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0 relative">
             <img
               src="./icons/degira-van.jpg"
               alt="DeGira Camioneta VW Hippie Años 60"
@@ -80,43 +80,49 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <div className="absolute inset-0 ring-1 ring-inset ring-amber-400/40 rounded-xl pointer-events-none" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center space-x-1">
-              <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-100 font-display">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1">
+              <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-100 font-display whitespace-nowrap">
                 De<span className="text-amber-400">Gira</span>
               </span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-gradient-to-r from-amber-500/15 to-orange-500/15 text-amber-400 border border-amber-500/30">
+              <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded font-bold bg-gradient-to-r from-amber-500/15 to-orange-500/15 text-amber-400 border border-amber-500/30 whitespace-nowrap shrink-0">
                 VIVO
               </span>
             </div>
-            <p className="text-[10px] text-slate-300 font-medium leading-none truncate max-w-[105px] sm:max-w-none">
+            <p className="text-[10px] text-slate-300 font-medium leading-tight truncate max-w-[115px] sm:max-w-[165px]">
               Bienvenido, <span className="text-amber-400 font-bold">{userDisplayName || 'Usuario'}</span>
             </p>
           </div>
         </div>
 
         {/* Role Badge (Clear identification of current isolated profile) */}
-        <div className="flex items-center space-x-1 px-2 sm:px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] sm:text-xs shadow-inner shrink-0">
+        <div
+          data-testid="header-role-badge"
+          className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[10px] sm:text-xs shadow-inner shrink-0"
+        >
           {role === 'musico' ? (
             <>
-              <Music className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Music className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
               <span className="font-bold text-slate-200 whitespace-nowrap">Músico</span>
             </>
           ) : role === 'bar' ? (
             <>
-              <Wine className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Wine className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
               <span className="font-bold text-slate-200 whitespace-nowrap">Bar</span>
             </>
           ) : (
             <>
-              <Ticket className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Ticket className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
               <span className="font-bold text-slate-200 whitespace-nowrap">Público</span>
             </>
           )}
         </div>
 
-        {/* Right tools: Install App, Notifications, Frame toggle & Account switch */}
-        <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+        {/* Right tools: Install App, Dev Push, Frame toggle, Feedback Wrench, Notifications & Sign out */}
+        <div
+          data-testid="header-tools"
+          className="flex items-center gap-1 shrink-0"
+        >
           {/* PWA Install Icon Button */}
           {!isInstalled && (onOpenInstall || isInstallable) && (
             <button
@@ -124,10 +130,9 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={handleInstallClick}
               aria-label="Instalar aplicación"
               title="Instalar DeGira en tu celular o computadora"
-              className="flex items-center justify-center gap-1 w-8 sm:w-auto sm:px-2 h-8 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-colors"
+              className="flex items-center justify-center w-7 sm:w-8 h-8 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 transition-colors"
             >
               <Download className="w-3.5 h-3.5 stroke-[2.3]" />
-              <span className="hidden sm:inline">Instalar</span>
             </button>
           )}
 
@@ -139,16 +144,17 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenGithubPush}
               aria-label="Push a GitHub"
               title="Subir cambios a GitHub (pedirá tu token)"
-              className="flex items-center justify-center gap-1 w-8 sm:w-auto sm:px-2 h-8 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition-colors"
+              className="flex items-center justify-center w-7 sm:w-8 h-8 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 transition-colors"
             >
               <GitBranch className="w-3.5 h-3.5 stroke-[2.3]" />
-              <span className="hidden sm:inline">Push</span>
             </button>
           )}
 
           {/* Mobile frame toggle (desktop only) */}
           <button
+            type="button"
             onClick={() => setIsMobileFrame(!isMobileFrame)}
+            aria-label={isMobileFrame ? 'Ver en ancho completo' : 'Simular celular'}
             title={isMobileFrame ? 'Ver en ancho completo' : 'Simular celular (Android/iPhone)'}
             className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
           >
@@ -159,26 +165,28 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Change account / Sign out */}
-          {onSignOut && (
+          {/* Reportar bug / mejora / feedback button (Wrench) */}
+          {onOpenFeedback && (
             <button
-              onClick={onSignOut}
-              title="Cambiar de cuenta o cerrar sesión"
-              aria-label="Cambiar de cuenta"
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold transition-colors"
+              type="button"
+              data-testid="header-feedback-btn"
+              onClick={onOpenFeedback}
+              aria-label="Reportar bug o enviar feedback"
+              title="Reportar bug, sugerir mejora o enviar feedback"
+              className="flex items-center justify-center w-7 sm:w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-amber-400 hover:text-amber-300 hover:border-amber-500/50 transition-colors"
             >
-              <LogOut className="w-3.5 h-3.5 text-red-400" />
-              <span>Cuentas</span>
+              <Wrench className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           )}
 
           {/* Notifications button */}
           <button
+            type="button"
             onClick={onOpenNotifications}
             aria-label="Ver notificaciones"
-            className="relative w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
+            className="relative w-7 sm:w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors"
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black flex items-center justify-center">
                 {unreadCount}
@@ -189,12 +197,13 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Cerrar sesión button */}
           {onSignOut && (
             <button
+              type="button"
               onClick={onSignOut}
               title="Cerrar sesión"
               aria-label="Cerrar sesión"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
+              className="flex items-center justify-center w-7 sm:w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           )}
         </div>

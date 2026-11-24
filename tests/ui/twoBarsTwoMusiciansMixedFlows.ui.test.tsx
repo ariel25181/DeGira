@@ -334,7 +334,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
 
     // Self-accept guard: Bar 1 MUST NOT see "Aceptar Propuesta" while status is contraoferta_bar
     assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
-    screen.getByText(/Esperando respuesta del músico/i);
+    assert.ok(screen.getAllByText(/Esperando respuesta del músico/i).length >= 1);
 
     // Mus 1 opens Mis Postulaciones, sees contraoferta_bar, and counters back 55,000
     await switchActor('ActAsMus1');

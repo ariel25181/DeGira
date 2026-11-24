@@ -8,6 +8,8 @@ import { SessionProvider } from '../../src/context/SessionContext.tsx';
 import { ProfileView } from '../../src/components/ProfileView.tsx';
 import { OpenCallsView } from '../../src/components/OpenCallsView.tsx';
 import { AgreementsAndReviewsView } from '../../src/components/AgreementsAndReviewsView.tsx';
+import { Header } from '../../src/components/Header.tsx';
+import { NotificationsDrawer } from '../../src/components/modals/NotificationsDrawer.tsx';
 
 const mockClient = {
   auth: {
@@ -252,4 +254,241 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
     const profileSwitcher = screen.getByTestId('profile-venue-switcher') as HTMLSelectElement;
     assert.strictEqual(profileSwitcher.value, 'venue-la-subasta');
   });
+
+  it('Bar slot view hides musician-only "Ya te postulaste", removes Aceptar Propuesta upon acceptance, exposes Wrench icon, and scopes notifications/emails', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem(
+      'suena_ba_v3_notifications',
+      JSON.stringify([
+        {
+          id: 'n-bar-own',
+          title: 'Propuesta para Bar Test 1',
+          message: 'Solo visible para Bar Test 1',
+          date: 'Hoy',
+          read: false,
+          type: 'info',
+          targetRole: 'bar',
+          targetEntityId: 'venue-1',
+        },
+        {
+          id: 'n-mus-other',
+          title: 'Propuesta secreta de Músico',
+          message: 'No debe verse en Bar Test 1',
+          date: 'Hoy',
+          read: false,
+          type: 'info',
+          targetRole: 'musico',
+          targetEntityId: 'mus-1',
+        },
+      ])
+    );
+    localStorage.setItem(
+      'degira:sent_emails:v1',
+      JSON.stringify([
+        {
+          id: 'em-bar',
+          to: 'bar1@degira.com.ar',
+          subject: 'Correo para Bar Test 1',
+          body: 'Contenido Bar',
+          sentAt: new Date().toISOString(),
+          type: 'negotiation',
+          targetRole: 'bar',
+          targetEntityId: 'venue-1',
+        },
+        {
+          id: 'em-mus',
+          to: 'musico1@degira.com.ar',
+          subject: 'Correo privado Músico Test 1',
+          body: 'No visible para bar',
+          sentAt: new Date().toISOString(),
+          type: 'negotiation',
+          targetRole: 'musico',
+          targetEntityId: 'mus-1',
+        },
+      ])
+    );
+
+    let feedbackClicked = false;
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <Header
+              isMobileFrame={false}
+              setIsMobileFrame={() => {}}
+              onOpenNotifications={() => {}}
+              onSelectTab={() => {}}
+              onOpenFeedback={() => { feedbackClicked = true; }}
+            />
+            <OpenCallsView onViewVenue={() => {}} onViewMusician={() => {}} />
+            <NotificationsDrawer isOpen={true} onClose={() => {}} />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    // Wrench icon exists and triggers callback
+    const wrenchBtn = screen.getByTestId('header-feedback-btn');
+    await act(async () => {
+      fireEvent.click(wrenchBtn);
+    });
+    assert.strictEqual(feedbackClicked, true);
+
+    // Bar never sees musician copy "Ya te postulaste"
+    assert.strictEqual(screen.queryByText(/Ya te postulaste/i), null);
+
+    // Scoped notifications: only bar notification shows, musician one is hidden
+    screen.getByText('Propuesta para Bar Test 1');
+    assert.strictEqual(screen.queryByText('Propuesta secreta de Músico'), null);
+
+    // Scoped emails: switch to Mis Emails tab
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Mis Emails/i }));
+    });
+    screen.getByText('Correo para Bar Test 1');
+    assert.strictEqual(screen.queryByText('Correo privado Músico Test 1'), null);
+
+    // Expand negotiations in OpenCallsView and accept pending bid
+    const expandBtn = screen.getByRole('button', { name: /Ver Negociaciones de Músicos/i });
+    await act(async () => {
+      fireEvent.click(expandBtn);
+    });
+
+    const acceptBtn = screen.getByRole('button', { name: /Aceptar Propuesta/i });
+    await act(async () => {
+      fireEvent.click(acceptBtn);
+    });
+
+    // Green Aceptar Propuesta button disappears immediately after confirmation
+    assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
+    assert.ok(screen.getAllByText(/Acordado con: Músico Test 2/i).length >= 1);
+  });
+
+  it('shows filter counts, slot time on bid cards, and closes pending bids & clears pending-bar-bids-badge on publish', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem(
+      'suena_ba_v3_eventProposals',
+      JSON.stringify([
+        {
+          id: 'ev-pub-test',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Ciclo Two-Slot Publish',
+          date: '2026-12-20',
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 60000,
+          ticketPriceARS: 5000,
+          targetGenres: ['Jazz'],
+          slots: [
+            {
+              id: 'slot-conf',
+              startTime: '21:00',
+              endTime: '22:00',
+              requiredMusicians: 2,
+              status: 'confirmado',
+              assignedMusicianId: 'mus-1',
+              assignedMusicianName: 'Músico Test 1',
+              agreedCachetARS: 60000,
+            },
+            {
+              id: 'slot-pend',
+              startTime: '22:15',
+              endTime: '23:30',
+              requiredMusicians: 2,
+              status: 'negociando',
+            },
+          ],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'para_publicar',
+          eventCode: 'DG-TEST-22',
+          createdAt: '2026-11-22T12:00:00.000Z',
+        },
+      ])
+    );
+    localStorage.setItem(
+      'suena_ba_v3_slotBids',
+      JSON.stringify([
+        {
+          id: 'bid-conf',
+          eventId: 'ev-pub-test',
+          slotId: 'slot-conf',
+          musicianId: 'mus-1',
+          musicianName: 'Músico Test 1',
+          musicianAvatar: '',
+          proposedCachetARS: 60000,
+          musiciansCount: 2,
+          equipmentProvided: 'Guitarras',
+          equipmentNeeded: 'Micrófonos',
+          status: 'aceptada',
+          history: [{ id: 'h1', actor: 'musico', actorName: 'Músico Test 1', cachetARS: 60000, note: 'OK', createdAt: '2026-11-22T13:00:00.000Z' }],
+          createdAt: '2026-11-22T13:00:00.000Z',
+        },
+        {
+          id: 'bid-pend',
+          eventId: 'ev-pub-test',
+          slotId: 'slot-pend',
+          musicianId: 'mus-2',
+          musicianName: 'Músico Test 2',
+          musicianAvatar: '',
+          proposedCachetARS: 75000,
+          musiciansCount: 2,
+          equipmentProvided: 'Bajo',
+          equipmentNeeded: 'Ampli',
+          status: 'pendiente_bar',
+          history: [{ id: 'h2', actor: 'musico', actorName: 'Músico Test 2', cachetARS: 75000, note: 'Propuesta slot 2', createdAt: '2026-11-22T14:00:00.000Z' }],
+          createdAt: '2026-11-22T14:00:00.000Z',
+        },
+      ])
+    );
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <OpenCallsView onViewVenue={() => {}} onViewMusician={() => {}} />
+            <AgreementsAndReviewsView onOpenReviewModal={() => {}} onViewVenue={() => {}} onViewMusician={() => {}} />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    // Bar filter chips include exact counts
+    screen.getByRole('button', { name: /Todas \(1\)/i });
+    screen.getByRole('button', { name: /Para Publicar \(1\)/i });
+    screen.getByRole('button', { name: /Propuestas \(0\)/i });
+
+    // Confirmed slot explicitly says Bar & Musician agreed
+    screen.getByText(/Músico y bar ya acordaron este horario/i);
+
+    // Pending badge shows 1 before publishing
+    assert.strictEqual(screen.getByTestId('pending-bar-bids-badge').textContent, '1');
+
+    // Expand negotiations inside OpenCallsView -> verify bid cards include target slot times
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Ver Negociaciones de Músicos \(2\)/i }));
+    });
+    assert.ok(screen.getAllByText(/Horario 21:00 a 22:00 hs/i).length >= 2);
+    assert.ok(screen.getAllByText(/Horario 22:15 a 23:30 hs/i).length >= 2);
+
+    // Publish event manually -> closes leftover pending bid & clears badge + green Aceptar Propuesta button
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Publicar en Cartelera \(Manual\)/i }));
+    });
+
+    assert.strictEqual(screen.queryByTestId('pending-bar-bids-badge'), null);
+    assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
+    screen.getByRole('button', { name: /Publicadas \(1\)/i });
+  });
 });
+

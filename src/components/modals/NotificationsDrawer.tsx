@@ -16,6 +16,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { getSentEmails, SentEmailRecord } from '../../lib/emailService.ts';
+import {
+  isEmailVisibleToProfile,
+  resolveActiveProfileIdentity,
+} from '../../utils/notificationScoping.ts';
 
 interface NotificationsDrawerProps {
   isOpen: boolean;
@@ -30,20 +34,38 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
 }) => {
   const {
     role,
+    currentVenue,
+    currentMusician,
+    currentPublicUser,
+    venues,
+    publicUsers,
     notifications,
     markNotificationsAsRead,
     markSingleNotificationAsRead,
   } = useApp();
 
+  const activeIdentity = resolveActiveProfileIdentity({
+    role,
+    currentVenue,
+    currentMusician,
+    currentPublicUser,
+    venues,
+    publicUsers,
+  });
+
   const [activeSubTab, setActiveSubTab] = useState<'app' | 'emails'>('app');
   const [sentEmails, setSentEmails] = useState<SentEmailRecord[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<SentEmailRecord | null>(null);
 
+  const loadScopedEmails = () =>
+    getSentEmails().filter((email) => isEmailVisibleToProfile(email, activeIdentity));
+
   useEffect(() => {
     if (isOpen) {
-      setSentEmails(getSentEmails());
+      setSentEmails(loadScopedEmails());
+      setSelectedEmail(null);
     }
-  }, [isOpen]);
+  }, [isOpen, role, currentVenue?.id, currentMusician?.id, currentPublicUser?.id]);
 
   if (!isOpen) return null;
 
@@ -149,7 +171,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
           <button
             onClick={() => {
               setActiveSubTab('emails');
-              setSentEmails(getSentEmails());
+              setSentEmails(loadScopedEmails());
             }}
             className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
               activeSubTab === 'emails'
@@ -158,7 +180,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
             }`}
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>Emails Enviados</span>
+            <span>Mis Emails</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-bold">
               {sentEmails.length}
             </span>
@@ -265,17 +287,34 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
               </div>
             ) : (
               /* Emails List */
-              sentEmails.map((email) => (
+              sentEmails.map((email) => {
+                const isSentByMe = Boolean(
+                  email.senderRole &&
+                    email.senderRole === activeIdentity.role &&
+                    (!email.senderEntityId || !activeIdentity.entityId || email.senderEntityId === activeIdentity.entityId)
+                );
+                return (
                 <div
                   key={email.id}
                   onClick={() => setSelectedEmail(email)}
                   className="p-3 rounded-xl border border-slate-800/80 bg-slate-950/60 hover:bg-slate-800/60 hover:border-amber-500/40 text-xs cursor-pointer transition-all space-y-1.5"
                 >
-                  <div className="flex justify-between items-start">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                      {email.to}
-                    </span>
-                    <span className="text-[10px] text-slate-500">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase border ${
+                          isSentByMe
+                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                        }`}
+                      >
+                        {isSentByMe ? 'Enviado' : 'Recibido'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 truncate">
+                        {isSentByMe ? `Para: ${email.to}` : email.to}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 shrink-0">
                       {new Date(email.sentAt).toLocaleTimeString('es-AR', {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -293,7 +332,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
                     </span>
                   </div>
                 </div>
-              ))
+                );
+              })
             )
           )}
         </div>

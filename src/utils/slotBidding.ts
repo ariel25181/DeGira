@@ -141,8 +141,12 @@ export function getSlotDisplayState(params: {
 
   const isConfirmed =
     slot.status === 'confirmado' ||
-    Boolean(slot.assignedMusicianId) ||
-    Boolean(acceptedBid);
+    Boolean(acceptedBid) ||
+    (slot.status !== 'libre' &&
+      slot.status !== 'negociando' &&
+      Boolean(slot.assignedMusicianId));
+
+  const isMusicianViewer = viewerRole === 'musico' && Boolean(viewerMusicianId);
 
   if (isConfirmed) {
     return {
@@ -152,7 +156,7 @@ export function getSlotDisplayState(params: {
       activeBid: acceptedBid || activeBid,
       acceptedBid,
       isLockedByViewer: Boolean(
-        viewerMusicianId &&
+        isMusicianViewer &&
           (slot.assignedMusicianId === viewerMusicianId ||
             acceptedBid?.musicianId === viewerMusicianId)
       ),
@@ -170,9 +174,7 @@ export function getSlotDisplayState(params: {
       isLocked: true,
       canBid: false,
       activeBid,
-      isLockedByViewer: Boolean(
-        viewerMusicianId && activeBid.musicianId === viewerMusicianId
-      ),
+      isLockedByViewer: Boolean(isMusicianViewer && activeBid.musicianId === viewerMusicianId),
       wasPreviouslyRejectedForViewer: false,
     };
   }
@@ -181,7 +183,7 @@ export function getSlotDisplayState(params: {
     proposal.status === 'propuesta' || proposal.status === 'para_publicar';
 
   const wasPreviouslyRejectedForViewer = Boolean(
-    viewerMusicianId &&
+    isMusicianViewer &&
       bidsForSlot.some(
         (b) =>
           b.musicianId === viewerMusicianId &&
@@ -268,7 +270,11 @@ export function hasOpenSlotsInProposal(
     const hasAcceptedBid = bidsForSlot.some(
       (b) => !b.retracted && b.status === 'aceptada'
     );
-    return slot.status !== 'confirmado' && !slot.assignedMusicianId && !hasAcceptedBid;
+    return (
+      slot.status !== 'confirmado' &&
+      !hasAcceptedBid &&
+      (slot.status === 'libre' || slot.status === 'negociando' || !slot.assignedMusicianId)
+    );
   });
 }
 
@@ -516,7 +522,13 @@ export function validateRespondToSlotBid(params: {
         !b.retracted &&
         b.status === 'aceptada'
     );
-    if (slot.status === 'confirmado' || Boolean(slot.assignedMusicianId) || otherAccepted) {
+    const slotAlreadyConfirmed =
+      slot.status === 'confirmado' ||
+      otherAccepted ||
+      (slot.status !== 'libre' &&
+        slot.status !== 'negociando' &&
+        Boolean(slot.assignedMusicianId));
+    if (slotAlreadyConfirmed) {
       return {
         allowed: false,
         reason: 'Este horario ya está confirmado para otro músico.',
@@ -732,6 +744,7 @@ export function applyBidResponseTransition(params: {
       slotBids: MusicianSlotBid[];
       eventProposals: EventProposal[];
       updatedBid: MusicianSlotBid;
+      autoRejectedBids: MusicianSlotBid[];
       updatedEvent?: EventProposal;
       event: EventProposal;
     }
@@ -823,7 +836,38 @@ export function applyBidResponseTransition(params: {
     history: [...bid.history, historyEntry],
   };
 
-  const nextBids = slotBids.map((b) => (b.id === bidId ? updatedBid : b));
+  const autoRejectedBids: MusicianSlotBid[] = [];
+  const nextBids = slotBids.map((b) => {
+    if (b.id === bidId) return updatedBid;
+    if (
+      action === 'accept' &&
+      b.eventId === bid.eventId &&
+      b.slotId === bid.slotId &&
+      !b.retracted &&
+      b.status !== 'rechazada'
+    ) {
+      const closedSibling: MusicianSlotBid = {
+        ...b,
+        status: 'rechazada',
+        history: [
+          ...b.history,
+          {
+            id: `${historyId}-auto-${b.id.slice(-4)}`,
+            actor: 'bar',
+            actorName: event.venueName,
+            cachetARS: b.proposedCachetARS,
+            ...(b.cachetType ? { cachetType: b.cachetType } : {}),
+            note: 'Otro músico fue confirmado para este horario.',
+            createdAt: nowIso,
+          },
+        ],
+      };
+      autoRejectedBids.push(closedSibling);
+      return closedSibling;
+    }
+    return b;
+  });
+
   let updatedEvent: EventProposal | undefined;
 
   if (action === 'accept') {
@@ -850,6 +894,7 @@ export function applyBidResponseTransition(params: {
     slotBids: nextBids,
     eventProposals: nextEvents,
     updatedBid,
+    autoRejectedBids,
     updatedEvent,
     event,
   };
@@ -934,3 +979,95 @@ export function applyBidRetractionTransition(params: {
   };
 }
 
+export function applyPublishEventTransition(params: {
+  eventProposals: EventProposal[];
+  slotBids: MusicianSlotBid[];
+  eventId: string;
+  nowIso?: string;
+  historyIdPrefix?: string;
+}):
+  | {
+      ok: true;
+      eventProposals: EventProposal[];
+      slotBids: MusicianSlotBid[];
+      updatedEvent: EventProposal;
+      closedBids: MusicianSlotBid[];
+    }
+  | { ok: false; message: string } {
+  const {
+    eventProposals,
+    slotBids,
+    eventId,
+    nowIso = new Date().toISOString(),
+    historyIdPrefix = makeUniqueId('h-pub'),
+  } = params;
+
+  const target = eventProposals.find((e) => e.id === eventId);
+  if (!target) {
+    return { ok: false, message: 'Evento no encontrado.' };
+  }
+
+  const hasConfirmedSlot = target.slots.some(
+    (s) => s.status === 'confirmado' || Boolean(s.assignedMusicianId)
+  );
+  if (!hasConfirmedSlot) {
+    return { ok: false, message: 'Se requiere al menos un horario confirmado para publicar.' };
+  }
+
+  const closedBids: MusicianSlotBid[] = [];
+  const nextBids = slotBids.map((b) => {
+    if (
+      b.eventId === eventId &&
+      !b.retracted &&
+      b.status !== 'aceptada' &&
+      b.status !== 'rechazada'
+    ) {
+      const closed: MusicianSlotBid = {
+        ...b,
+        status: 'rechazada',
+        history: [
+          ...b.history,
+          {
+            id: `${historyIdPrefix}-${b.id.slice(-4)}`,
+            actor: 'bar',
+            actorName: target.venueName,
+            cachetARS: b.proposedCachetARS,
+            ...(b.cachetType ? { cachetType: b.cachetType } : {}),
+            note: 'El evento fue publicado en cartelera con la grilla confirmada; la negociación de este horario quedó cerrada.',
+            createdAt: nowIso,
+          },
+        ],
+      };
+      closedBids.push(closed);
+      return closed;
+    }
+    return b;
+  });
+
+  const updatedSlots = target.slots.map((s) => {
+    const isSlotConfirmed = s.status === 'confirmado' || Boolean(s.assignedMusicianId);
+    if (!isSlotConfirmed && s.status === 'negociando') {
+      return {
+        ...s,
+        status: 'libre' as const,
+      };
+    }
+    return s;
+  });
+
+  const updatedEvent: EventProposal = {
+    ...target,
+    slots: updatedSlots,
+    status: 'publicada',
+  };
+
+  const nextEvents = eventProposals.map((ev) => (ev.id === eventId ? updatedEvent : ev));
+
+  return {
+    ok: true,
+    eventProposals: nextEvents,
+    slotBids: nextBids,
+    updatedEvent,
+    closedBids,
+  };
+}

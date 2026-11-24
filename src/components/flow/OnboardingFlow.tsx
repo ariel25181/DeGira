@@ -36,7 +36,12 @@ import { usePWAInstall } from '../../hooks/usePWAInstall.ts';
 import { PWAInstallGuideModal } from '../PWAInstallBanner.tsx';
 import { TOUR, TourStep } from '../../content/tour.ts';
 import { UserRole } from '../../types/index.ts';
-import { saveActiveSession } from '../../lib/degiraSession.ts';
+import {
+  saveActiveSession,
+  getHideTourPreference,
+  setHideTourPreference,
+  shouldShowTourOnOnboarding,
+} from '../../lib/degiraSession.ts';
 import {
   TEST_ACCOUNTS,
   findTestAccountByEmail,
@@ -116,10 +121,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Tour state
   const [tourIndex, setTourIndex] = useState(0);
+  const [hideTour, setHideTour] = useState<boolean>(() => getHideTourPreference());
 
   // Map user role to tour audience key
   const audienceKey = selectedRole === 'bar' ? 'anfitrion' : selectedRole === 'musico' ? 'musico' : 'publico';
   const tourSteps: TourStep[] = TOUR[audienceKey] || TOUR.musico;
+
+  const completeStep2 = (resolvedRole: UserRole) => {
+    if (!shouldShowTourOnOnboarding(startAtTour)) {
+      onComplete(resolvedRole);
+      return;
+    }
+    setTourIndex(0);
+    setStep('tour');
+  };
 
   // Handler for Role Selection (Step 1)
   const handleSelectRole = (role: UserRole) => {
@@ -168,8 +183,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       }
       setSelectedRole(testAccount.role);
       setAuthLoading(false);
-      setTourIndex(0);
-      setStep('tour');
+      completeStep2(testAccount.role);
       return;
     }
 
@@ -183,7 +197,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         setAuthError(err);
         setAuthLoading(false);
       } else {
-        // Success: record user name and move to Step 3 (Guided Tour)
+        // Success: record user name and move to Step 3 (Guided Tour) unless opted out
         const nameToSave = displayName.trim() || email.split('@')[0];
         if (setUserDisplayName) setUserDisplayName(nameToSave);
         saveActiveSession({
@@ -194,8 +208,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         });
 
         setAuthLoading(false);
-        setTourIndex(0);
-        setStep('tour');
+        completeStep2(selectedRole);
       }
     } catch {
       // In case of network failure or demo environment, advance gracefully
@@ -209,8 +222,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       });
 
       setAuthLoading(false);
-      setTourIndex(0);
-      setStep('tour');
+      completeStep2(selectedRole);
     }
   };
 
@@ -236,8 +248,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         });
       }
       setSelectedRole(acc.role);
-      setTourIndex(0);
-      setStep('tour');
+      completeStep2(acc.role);
     }
   };
 
@@ -258,8 +269,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       });
     }
 
-    setTourIndex(0);
-    setStep('tour');
+    completeStep2(selectedRole);
   };
 
   // Handler for Tour Completion (Step 3 -> Step 4)
@@ -938,6 +948,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Don't show tour again checkbox */}
+            <label className="flex items-center gap-2.5 cursor-pointer text-xs text-slate-300 px-1 select-none">
+              <input
+                type="checkbox"
+                data-testid="tour-hide-checkbox"
+                checked={hideTour}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setHideTour(checked);
+                  setHideTourPreference(checked);
+                }}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900 accent-amber-500"
+              />
+              <span className="font-medium text-slate-300">
+                No volver a mostrar este tour al ingresar
+              </span>
+            </label>
 
             {/* Navigation buttons */}
             <div className="flex items-center gap-3">

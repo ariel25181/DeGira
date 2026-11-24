@@ -22,6 +22,7 @@ import { ShareModal } from './components/modals/ShareModal.tsx';
 import { FeedbackModal } from './components/modals/FeedbackModal.tsx';
 import { GitHubPushModal } from './components/modals/GitHubPushModal.tsx';
 import { PWAInstallBanner, PWAInstallGuideModal } from './components/PWAInstallBanner.tsx';
+import { PWAUpdateBanner } from './components/PWAUpdateBanner.tsx';
 import { SessionProvider, useSession } from './context/SessionContext.tsx';
 
 import { VenueOpenCall, MusicianAvailability, LiveShowConfirmed, UserRole, EventProposal } from './types/index.ts';
@@ -31,6 +32,7 @@ import { OnboardingFlow } from './components/flow/OnboardingFlow.tsx';
 import { RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivityNav.tsx';
 import { getActiveSession } from './lib/degiraSession.ts';
 import { getPendingReviewsForRole, PendingReviewItem } from './utils/reviewEligibility.ts';
+import { captureAppScreenshotSync } from './utils/captureScreenshot.ts';
 
 function MainApp() {
   const {
@@ -98,7 +100,13 @@ function MainApp() {
   // Share, Feedback and PWA Install modal states
   const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+  const [feedbackScreenshot, setFeedbackScreenshot] = useState<string | undefined>(undefined);
   const [isInstallGuideOpen, setIsInstallGuideOpen] = useState<boolean>(false);
+
+  const handleOpenFeedback = () => {
+    setFeedbackScreenshot(captureAppScreenshotSync());
+    setIsFeedbackOpen(true);
+  };
   const [isGithubPushOpen, setIsGithubPushOpen] = useState<boolean>(false);
   const [githubPushStatus, setGithubPushStatus] = useState<{
     enabled: boolean;
@@ -363,11 +371,14 @@ function MainApp() {
           onRestartTour={handleRestartTour}
           onChangeRole={handleRestartOnboarding}
           onOpenShare={() => setIsShareOpen(true)}
-          onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onOpenFeedback={handleOpenFeedback}
           onOpenInstall={() => setIsInstallGuideOpen(true)}
           onSignOut={handleSignOut}
           onOpenGithubPush={githubPushStatus.enabled ? () => setIsGithubPushOpen(true) : undefined}
         />
+
+        {/* PWA Update Available Banner (when update arrives mid-form or waiting) */}
+        <PWAUpdateBanner />
 
         {/* PWA In-App Install Prompt Banner */}
         <PWAInstallBanner onOpenGuide={() => setIsInstallGuideOpen(true)} />
@@ -638,7 +649,7 @@ function MainApp() {
         onRestartTour={handleRestartTour}
         onChangeRole={handleRestartOnboarding}
         onOpenShare={() => setIsShareOpen(true)}
-        onOpenFeedback={() => setIsFeedbackOpen(true)}
+        onOpenFeedback={handleOpenFeedback}
         onSignOut={handleSignOut}
       />
 
@@ -649,7 +660,7 @@ function MainApp() {
           initialRole={role}
           startAtTour={isTourOnly}
           onOpenShare={() => setIsShareOpen(true)}
-          onOpenFeedback={() => setIsFeedbackOpen(true)}
+          onOpenFeedback={handleOpenFeedback}
           onOpenInstall={() => setIsInstallGuideOpen(true)}
           onClose={() => setIsOnboardingOpen(false)}
           onOpenGithubPush={githubPushStatus.enabled ? () => setIsGithubPushOpen(true) : undefined}
@@ -668,6 +679,8 @@ function MainApp() {
         onClose={() => setIsFeedbackOpen(false)}
         currentRole={role}
         currentTab={activeTab}
+        initialScreenshot={feedbackScreenshot}
+        onRetakeScreenshot={captureAppScreenshotSync}
       />
 
       {/* AI Studio Dev GitHub Push Modal */}

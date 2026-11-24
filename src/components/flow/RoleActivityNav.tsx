@@ -312,6 +312,7 @@ export const RoleIconMenuModal: React.FC<RoleIconMenuModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Cerrar menú"
             className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-lg font-bold transition-colors"
           >
             ×

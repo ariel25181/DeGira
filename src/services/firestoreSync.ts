@@ -171,8 +171,31 @@ function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<st
   });
 }
 
+function sanitizeBidHistory(history: MusicianSlotBid['history']): Record<string, any>[] {
+  return (history || []).slice(0, 50).map((h) =>
+    stripUndefined({
+      id: clampString(h.id, 80, `h-${Date.now()}`),
+      actor: h.actor,
+      actorName: clampString(h.actorName, 140),
+      cachetARS: Math.max(0, Number(h.cachetARS) || 0),
+      cachetType:
+        h.cachetType === 'a_la_gorra' || h.cachetType === 'fijo' ? h.cachetType : undefined,
+      note: clampString(h.note, 400),
+      createdAt: clampString(h.createdAt, 60),
+    })
+  );
+}
+
 function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<string, any> {
   const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
+  const validStatuses: MusicianSlotBid['status'][] = [
+    'pendiente_bar',
+    'contraoferta_bar',
+    'contraoferta_musico',
+    'aceptada',
+    'rechazada',
+  ];
+  const safeStatus = validStatuses.includes(bid.status) ? bid.status : 'pendiente_bar';
   return stripUndefined({
     id: clampString(bid.id, 128),
     eventId: clampString(bid.eventId, 128),
@@ -192,19 +215,8 @@ function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<strin
     reminderCount: bid.reminderCount !== undefined ? Math.max(0, Number(bid.reminderCount)) : undefined,
     retracted: bid.retracted,
     retractedAt: bid.retractedAt ? clampString(bid.retractedAt, 60) : undefined,
-    status: bid.status === 'contraoferta_musico' ? 'contraoferta_musico' : 'pendiente_bar',
-    history: (bid.history || []).slice(0, 50).map((h) =>
-      stripUndefined({
-        id: clampString(h.id, 80, `h-${Date.now()}`),
-        actor: h.actor,
-        actorName: clampString(h.actorName, 140),
-        cachetARS: Math.max(0, Number(h.cachetARS) || 0),
-        cachetType:
-          h.cachetType === 'a_la_gorra' || h.cachetType === 'fijo' ? h.cachetType : undefined,
-        note: clampString(h.note, 400),
-        createdAt: clampString(h.createdAt, 60),
-      })
-    ),
+    status: safeStatus,
+    history: sanitizeBidHistory(bid.history),
     visibility: 'public',
     ownerUid: uid,
     createdAt: clampString(bid.createdAt, 60, new Date().toISOString()),
@@ -355,7 +367,8 @@ export async function syncSlotBidCreate(
     if (parentEvent) {
       await ensureEventProposalInCloud(parentEvent, uid);
     }
-    await setDoc(doc(db, 'slotBids', bid.id), sanitizeSlotBidPayload(bid, uid));
+    const createStatus = bid.status === 'contraoferta_musico' ? 'contraoferta_musico' : 'pendiente_bar';
+    await setDoc(doc(db, 'slotBids', bid.id), sanitizeSlotBidPayload({ ...bid, status: createStatus }, uid));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
@@ -374,7 +387,13 @@ export async function syncSlotBidMusicianUpdate(
       if (parentEvent) {
         await ensureEventProposalInCloud(parentEvent, uid);
       }
-      await setDoc(ref, sanitizeSlotBidPayload(bid, uid));
+      await setDoc(
+        ref,
+        sanitizeSlotBidPayload(
+          { ...bid, status: bid.status === 'contraoferta_musico' ? 'contraoferta_musico' : 'pendiente_bar' },
+          uid
+        )
+      );
       return;
     }
     const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
@@ -384,7 +403,7 @@ export async function syncSlotBidMusicianUpdate(
         safeCachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(bid.proposedCachetARS) || 0),
       cachetType: safeCachetType,
       musiciansCount: Math.max(1, Math.min(30, Number(bid.musiciansCount) || 1)),
-      history: bid.history,
+      history: sanitizeBidHistory(bid.history),
       reminderSentAt: bid.reminderSentAt,
       reminderCount: bid.reminderCount,
       retracted: bid.retracted,
@@ -409,6 +428,7 @@ export async function syncSlotBidBarResponse(
     const safeCachetType = bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
     const safeCachetARS =
       safeCachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(bid.proposedCachetARS) || 0);
+    const safeHistory = sanitizeBidHistory(bid.history);
     if (!snap.exists()) {
       if (parentEvent) {
         await ensureEventProposalInCloud(parentEvent, uid);
@@ -419,7 +439,7 @@ export async function syncSlotBidBarResponse(
           status: bid.status,
           proposedCachetARS: safeCachetARS,
           cachetType: safeCachetType,
-          history: bid.history,
+          history: safeHistory,
           updatedAtTimestamp: serverTimestamp(),
         });
       }
@@ -429,7 +449,7 @@ export async function syncSlotBidBarResponse(
       status: bid.status,
       proposedCachetARS: safeCachetARS,
       cachetType: safeCachetType,
-      history: bid.history,
+      history: safeHistory,
       updatedAtTimestamp: serverTimestamp(),
     });
   } catch (error) {

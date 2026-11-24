@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Wrench,
   Bug,
@@ -10,16 +10,22 @@ import {
   ExternalLink,
   X,
   Send,
-  AlertCircle,
   Monitor,
+  Camera,
+  ImagePlus,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { UserRole } from '../../types/index.ts';
+import { readImageFilesAsDataUrls } from '../../utils/captureScreenshot.ts';
 
 interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentRole: UserRole;
   currentTab: string;
+  initialScreenshot?: string;
+  onRetakeScreenshot?: () => string | undefined;
 }
 
 type FeedbackType = 'bug' | 'feature' | 'general';
@@ -34,6 +40,8 @@ interface StoredFeedback {
   tab: string;
   timestamp: string;
   userAgent: string;
+  screenshot?: string;
+  attachments?: string[];
 }
 
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({
@@ -41,6 +49,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   onClose,
   currentRole,
   currentTab,
+  initialScreenshot,
+  onRetakeScreenshot,
 }) => {
   const [type, setType] = useState<FeedbackType>('bug');
   const [title, setTitle] = useState('');
@@ -49,6 +59,16 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [screenshot, setScreenshot] = useState<string | undefined>(initialScreenshot);
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setScreenshot(initialScreenshot);
+      setUploadError(null);
+    }
+  }, [isOpen, initialScreenshot]);
 
   if (!isOpen) return null;
 
@@ -66,12 +86,19 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
     const typeLabel =
       type === 'bug' ? '🐛 Bug / Error' : type === 'feature' ? '💡 Sugerencia / Mejora' : '💬 Feedback General';
 
+    const mediaSummary = [
+      screenshot ? '- **Captura automática:** Adjuntada al reporte local' : null,
+      attachments.length > 0 ? `- **Fotos adjuntas:** ${attachments.length} imagen(es)` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
     return `### [${typeLabel}] ${title || 'Sin título'}
 
 **Descripción:**
 ${description || 'Sin descripción provista.'}
 
-${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
+${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}${mediaSummary ? `\n${mediaSummary}\n` : ''}
 ---
 **Información Técnica:**
 - **Rol Activo:** ${technicalInfo.activeRole}
@@ -83,6 +110,11 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
 - **Navegador:** ${technicalInfo.userAgent}
 `;
   };
+
+  const typePrefix = type === 'bug' ? '[Bug] ' : type === 'feature' ? '[Mejora] ' : '[Feedback] ';
+  const issueTitle = encodeURIComponent(`${typePrefix}${title || 'Nuevo reporte desde DeGira'}`);
+  const issueBody = encodeURIComponent(generateMarkdownReport());
+  const githubIssueUrl = `https://github.com/ariel25181/DeGira/issues/new?title=${issueTitle}&body=${issueBody}`;
 
   const handleCopyMarkdown = async () => {
     const md = generateMarkdownReport();
@@ -98,15 +130,36 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
     }
   };
 
-  const handleOpenGitHubIssue = () => {
-    const typePrefix = type === 'bug' ? '[Bug] ' : type === 'feature' ? '[Mejora] ' : '[Feedback] ';
-    const issueTitle = encodeURIComponent(`${typePrefix}${title || 'Nuevo reporte desde DeGira'}`);
-    const issueBody = encodeURIComponent(generateMarkdownReport());
-    const githubUrl = `https://github.com/ariel25181/DeGira/issues/new?title=${issueTitle}&body=${issueBody}`;
-
-    if (typeof window !== 'undefined') {
-      window.open(githubUrl, '_blank', 'noopener,noreferrer');
+  const handleRetakeScreenshot = () => {
+    if (!onRetakeScreenshot) return;
+    const next = onRetakeScreenshot();
+    if (next) {
+      setScreenshot(next);
     }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const remainingSlots = Math.max(0, 5 - attachments.length);
+    if (remainingSlots === 0) {
+      setUploadError('Podés adjuntar hasta 5 fotos adicionales.');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadError(null);
+    const urls = await readImageFilesAsDataUrls(files, remainingSlots);
+    if (urls.length === 0) {
+      setUploadError('No se pudieron leer las imágenes seleccionadas.');
+    } else {
+      setAttachments((prev) => [...prev, ...urls].slice(0, 5));
+    }
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = (indexToRemove: number) => {
+    setAttachments((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -128,6 +181,8 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
         tab: currentTab,
         timestamp: new Date().toISOString(),
         userAgent: technicalInfo.userAgent,
+        screenshot,
+        attachments: attachments.length > 0 ? attachments : undefined,
       };
       existing.unshift(newReport);
       localStorage.setItem('suenaba:feedback_reports:v1', JSON.stringify(existing.slice(0, 50)));
@@ -143,6 +198,9 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
     setTitle('');
     setDescription('');
     setContactEmail('');
+    setAttachments([]);
+    setScreenshot(undefined);
+    setUploadError(null);
     onClose();
   };
 
@@ -190,19 +248,20 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
                   ¡Gracias por tu aporte!
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-300 max-w-sm mx-auto leading-relaxed">
-                  Tu reporte fue guardado con éxito. También podés publicarlo directamente como Issue en nuestro repositorio de GitHub.
+                  Tu reporte{(screenshot || attachments.length > 0) ? ' con capturas adjuntas' : ''} fue guardado con éxito. También podés publicarlo directamente como Issue en nuestro repositorio de GitHub.
                 </p>
               </div>
 
               <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
-                <button
-                  type="button"
-                  onClick={handleOpenGitHubIssue}
+                <a
+                  href={githubIssueUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5"
                 >
                   <ExternalLink className="w-4 h-4" />
                   <span>Crear Issue en GitHub</span>
-                </button>
+                </a>
                 <button
                   type="button"
                   onClick={handleCopyMarkdown}
@@ -317,6 +376,88 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
                 />
               </div>
 
+              {/* Auto-Screenshot & Photo Attachments */}
+              <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <Camera className="w-4 h-4 text-amber-400" />
+                    <span>Captura de pantalla y fotos adjuntas</span>
+                  </div>
+                  {onRetakeScreenshot && (
+                    <button
+                      type="button"
+                      onClick={handleRetakeScreenshot}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{screenshot ? 'Recapturar' : 'Tomar captura'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {screenshot && (
+                  <div className="space-y-1.5" data-testid="feedback-screenshot-preview">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="text-emerald-300 font-semibold">Captura automática de pantalla</span>
+                      <button
+                        type="button"
+                        onClick={() => setScreenshot(undefined)}
+                        className="text-rose-400 hover:text-rose-300 font-semibold inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Quitar</span>
+                      </button>
+                    </div>
+                    <img
+                      src={screenshot}
+                      alt="Captura automática de pantalla"
+                      className="w-full max-h-36 object-cover rounded-xl border border-slate-700 bg-slate-900"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-colors">
+                    <ImagePlus className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Subir otras fotos ({attachments.length}/5)</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      data-testid="feedback-photo-input"
+                      onChange={handlePhotoUpload}
+                      className="sr-only"
+                    />
+                  </label>
+
+                  {uploadError && (
+                    <p className="text-[11px] text-rose-400 font-semibold">{uploadError}</p>
+                  )}
+
+                  {attachments.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {attachments.map((imgSrc, idx) => (
+                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-700 bg-slate-900">
+                          <img
+                            src={imgSrc}
+                            alt={`Foto adjunta ${idx + 1}`}
+                            className="w-full h-20 object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachment(idx)}
+                            aria-label={`Quitar foto ${idx + 1}`}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-slate-950/90 text-rose-400 hover:text-rose-300 flex items-center justify-center border border-slate-700"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Contact Email (optional) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -367,15 +508,16 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}
                   <span>Enviar Reporte</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenGitHubIssue}
+                <a
+                  href={githubIssueUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-2"
                   title="Abrir directamente un nuevo issue en GitHub"
                 >
                   <ExternalLink className="w-4 h-4 text-amber-400" />
                   <span>Abrir en GitHub Issues</span>
-                </button>
+                </a>
               </div>
             </form>
           )}

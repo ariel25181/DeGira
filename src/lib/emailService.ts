@@ -7,9 +7,16 @@
  * 4. Invitación a calificar (Rating 360°) una vez finalizado el show.
  */
 
+import type { UserRole } from '../types/index.ts';
+
 export interface SentEmailRecord {
   id: string;
   to: string;
+  targetRole?: UserRole;
+  targetEntityId?: string;
+  senderRole?: UserRole;
+  senderEntityId?: string;
+  fromEmail?: string;
   subject: string;
   bodyText: string;
   qrCodeUrl?: string;
@@ -76,6 +83,9 @@ export function sendQrTicketEmail(params: {
   eventTime: string;
   partySize: number;
   qrTicketCode: string;
+  targetEntityId?: string;
+  senderEntityId?: string;
+  fromEmail?: string;
 }) {
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
     params.qrTicketCode
@@ -83,6 +93,11 @@ export function sendQrTicketEmail(params: {
 
   return saveEmailRecord({
     to: params.toEmail,
+    targetRole: 'espectador',
+    targetEntityId: params.targetEntityId,
+    senderRole: 'bar',
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
     subject: `🎟️ Tu entrada y Pase QR para ${params.eventTitle} en ${params.venueName}`,
     bodyText: `¡Hola ${params.userName}!
 
@@ -113,9 +128,17 @@ export function sendPaymentUploadedAlertToBar(params: {
   eventCode: string;
   userName: string;
   amountARS: number;
+  targetEntityId?: string;
+  senderEntityId?: string;
+  fromEmail?: string;
 }) {
   return saveEmailRecord({
     to: params.barEmail,
+    targetRole: 'bar',
+    targetEntityId: params.targetEntityId,
+    senderRole: 'espectador',
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
     subject: `🔔 Nuevo comprobante de pago recibido para ${params.eventTitle} (${params.eventCode})`,
     bodyText: `Hola ${params.venueName},
 
@@ -140,6 +163,9 @@ export function sendEventPublishedToMusician(params: {
   slotTime: string;
   agreedCachetARS: number;
   agreedCachetType?: 'fijo' | 'a_la_gorra';
+  targetEntityId?: string;
+  senderEntityId?: string;
+  fromEmail?: string;
 }) {
   const cachetLabel =
     params.agreedCachetType === 'a_la_gorra'
@@ -148,6 +174,11 @@ export function sendEventPublishedToMusician(params: {
 
   return saveEmailRecord({
     to: params.musicianEmail,
+    targetRole: 'musico',
+    targetEntityId: params.targetEntityId,
+    senderRole: 'bar',
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
     subject: `🎉 ¡Fecha publicada en Cartelera! ${params.eventTitle} en ${params.venueName}`,
     bodyText: `¡Hola ${params.musicianName}!
 
@@ -173,6 +204,7 @@ export function sendReviewReminderEmail(params: {
   userName: string;
   eventTitle: string;
   role: 'espectador' | 'musico' | 'bar';
+  targetEntityId?: string;
 }) {
   const roleText =
     params.role === 'espectador'
@@ -183,6 +215,8 @@ export function sendReviewReminderEmail(params: {
 
   return saveEmailRecord({
     to: params.toEmail,
+    targetRole: params.role,
+    targetEntityId: params.targetEntityId,
     subject: `⭐ ¿Cómo estuvo ${params.eventTitle}? Dejanos tu calificación`,
     bodyText: `¡Hola ${params.userName}!
 
@@ -209,6 +243,9 @@ export function sendProposalReceivedEmailToBar(params: {
   slotTime: string;
   cachetARS: number;
   cachetType?: 'fijo' | 'a_la_gorra';
+  targetEntityId?: string;
+  senderEntityId?: string;
+  fromEmail?: string;
 }) {
   const cachetLabel =
     params.cachetType === 'a_la_gorra'
@@ -217,6 +254,11 @@ export function sendProposalReceivedEmailToBar(params: {
 
   return saveEmailRecord({
     to: params.barEmail,
+    targetRole: 'bar',
+    targetEntityId: params.targetEntityId,
+    senderRole: 'musico',
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
     subject: `🎸 Nueva propuesta musical de ${params.musicianName} para ${params.eventTitle}`,
     bodyText: `Hola ${params.venueName},
 
@@ -234,7 +276,7 @@ Equipo DeGira`,
 }
 
 /**
- * 6. Notificación al Músico sobre contraoferta o resolución del Bar
+ * 6. Notificación sobre contraoferta o resolución entre Bar y Músico
  */
 export function sendNegotiationUpdateEmailToMusician(params: {
   musicianEmail: string;
@@ -245,13 +287,24 @@ export function sendNegotiationUpdateEmailToMusician(params: {
   newCachetARS?: number;
   cachetType?: 'fijo' | 'a_la_gorra';
   note?: string;
+  toEmail?: string;
+  targetRole?: UserRole;
+  targetEntityId?: string;
+  senderRole?: UserRole;
+  senderEntityId?: string;
+  fromEmail?: string;
 }) {
+  const effectiveTargetRole: UserRole = params.targetRole || 'musico';
+  const effectiveSenderRole: UserRole = params.senderRole || (effectiveTargetRole === 'bar' ? 'musico' : 'bar');
+  const actorLabel = effectiveSenderRole === 'bar' ? params.venueName : params.musicianName;
+  const recipientName = effectiveTargetRole === 'bar' ? params.venueName : params.musicianName;
+
   const actionSubject =
     params.action === 'accept'
-      ? `🎉 ¡Propuesta Aceptada por ${params.venueName}!`
+      ? `🎉 ¡Propuesta Aceptada por ${actorLabel}!`
       : params.action === 'counter'
-      ? `💬 Contraoferta de Caché de ${params.venueName}`
-      : `Actualización sobre tu propuesta en ${params.venueName}`;
+      ? `💬 Contraoferta de Caché de ${actorLabel}`
+      : `Actualización sobre la propuesta en ${params.venueName}`;
 
   const counterLabel =
     params.cachetType === 'a_la_gorra'
@@ -260,19 +313,24 @@ export function sendNegotiationUpdateEmailToMusician(params: {
 
   const actionText =
     params.action === 'accept'
-      ? `¡Felicitaciones! ${params.venueName} aceptó tu propuesta para "${params.eventTitle}". La fecha está confirmada.`
+      ? `¡Felicitaciones! ${actorLabel} aceptó la propuesta para "${params.eventTitle}". La fecha quedó acordada.`
       : params.action === 'counter'
-      ? `${params.venueName} te envió una contraoferta de caché (${counterLabel}). Nota del bar: "${params.note || 'Sin nota'}".`
-      : `${params.venueName} no pudo aceptar tu postulación en esta ocasión para "${params.eventTitle}".`;
+      ? `${actorLabel} envió una contraoferta de caché (${counterLabel}). Nota: "${params.note || 'Sin nota'}".`
+      : `${actorLabel} rechazó la propuesta para "${params.eventTitle}". El horario volvió a quedar libre.`;
 
   return saveEmailRecord({
-    to: params.musicianEmail,
+    to: params.toEmail || params.musicianEmail,
+    targetRole: effectiveTargetRole,
+    targetEntityId: params.targetEntityId,
+    senderRole: effectiveSenderRole,
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
     subject: actionSubject,
-    bodyText: `Hola ${params.musicianName},
+    bodyText: `Hola ${recipientName},
 
 ${actionText}
 
-Revisá los detalles en la pestaña "Mis Propuestas" en DeGira.
+Revisá los detalles en DeGira.
 
 Equipo DeGira`,
     type: 'negotiation_update_musician',
@@ -290,9 +348,12 @@ export function sendReservationCreatedEmail(params: {
   partySize: number;
   totalARS: number;
   eventCode: string;
+  targetEntityId?: string;
 }) {
   return saveEmailRecord({
     to: params.userEmail,
+    targetRole: 'espectador',
+    targetEntityId: params.targetEntityId,
     subject: `⏱️ Reserva iniciada para ${params.eventTitle} (Código: ${params.eventCode})`,
     bodyText: `¡Hola ${params.userName}!
 
@@ -317,9 +378,12 @@ export function sendReservationExpiredEmail(params: {
   eventTitle: string;
   venueName: string;
   partySize: number;
+  targetEntityId?: string;
 }) {
   return saveEmailRecord({
     to: params.userEmail,
+    targetRole: 'espectador',
+    targetEntityId: params.targetEntityId,
     subject: `⌛ Reserva expirada para ${params.eventTitle}`,
     bodyText: `Hola ${params.userName},
 

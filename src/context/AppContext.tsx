@@ -57,6 +57,7 @@ import {
   applyBidSubmissionTransition,
   applyBidResponseTransition,
   applyBidRetractionTransition,
+  applyPublishEventTransition,
   makeUniqueId,
 } from '../utils/slotBidding.ts';
 import { supabase } from '../lib/supabaseClient.ts';
@@ -99,6 +100,14 @@ import {
 import { sendPushNotification } from '../lib/push.ts';
 import { clearActiveSession, saveActiveSession } from '../lib/degiraSession.ts';
 import { TestAccount } from '../data/testAccounts.ts';
+import { mergeSlotBidsMonotonic, mergeEventProposalsMonotonic } from '../utils/cloudMerge.ts';
+import {
+  resolveVenueEmail,
+  resolveMusicianEmail,
+  resolvePublicUserEmail,
+  resolveActiveProfileIdentity,
+  isNotificationVisibleToProfile,
+} from '../utils/notificationScoping.ts';
 
 export interface NotificationItem {
   id: string;
@@ -107,6 +116,9 @@ export interface NotificationItem {
   timestamp: string;
   read: boolean;
   type: 'application' | 'offer' | 'confirmed' | 'review' | 'system';
+  targetRole?: UserRole;
+  targetEntityId?: string;
+  targetEmail?: string;
 }
 
 interface AppContextType {
@@ -411,7 +423,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}notifications`);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
     return [
       {
         id: 'notif-1',
@@ -420,6 +437,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: 'venue-1',
       },
       {
         id: 'notif-2',
@@ -428,6 +447,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Hace 4 horas',
         read: false,
         type: 'offer',
+        targetRole: 'musico',
+        targetEntityId: 'mus-1',
       },
     ];
   });
@@ -510,11 +531,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setVenues((prev) => mergeByIdWithCloudPriority(prev, cloudVenues));
               },
               onEventProposals: (cloudEvents) => {
-                setEventProposals((prev) => mergeByIdWithCloudPriority(prev, cloudEvents));
+                const nextEvents = mergeEventProposalsMonotonic(
+                  eventProposalsRef.current,
+                  cloudEvents,
+                  slotBidsRef.current
+                );
+                eventProposalsRef.current = nextEvents;
+                setEventProposals(nextEvents);
                 setCloudSyncStatus('connected');
               },
               onSlotBids: (cloudBids) => {
-                setSlotBids((prev) => mergeByIdWithCloudPriority(prev, cloudBids));
+                const nextBids = mergeSlotBidsMonotonic(slotBidsRef.current, cloudBids);
+                slotBidsRef.current = nextBids;
+                setSlotBids(nextBids);
+                const reconciledEvents = mergeEventProposalsMonotonic(
+                  eventProposalsRef.current,
+                  eventProposalsRef.current,
+                  nextBids
+                );
+                eventProposalsRef.current = reconciledEvents;
+                setEventProposals(reconciledEvents);
               },
               onReservations: (cloudRes) => {
                 setPublicEventReservations((prev) => mergeByIdWithCloudPriority(prev, cloudRes));
@@ -730,6 +766,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: callData.venueId || currentVenue?.id,
       },
       ...prev,
     ]);
@@ -764,6 +802,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'musico',
+        targetEntityId: applicationData.musicianId || currentMusician?.id,
       },
       ...prev,
     ]);
@@ -829,12 +869,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setNotifications((prev) => [
           {
-            id: `notif-${Date.now()}`,
+            id: makeUniqueId('notif-bar'),
             title: '🎉 ¡Acuerdo Confirmado & Show Publicado!',
             message: `La fecha del ${targetCall?.date} en ${venue.name} con ${musician.stageName} ya está en la cartelera de Buenos Aires.`,
             timestamp: 'Recién',
             read: false,
             type: 'confirmed',
+            targetRole: 'bar',
+            targetEntityId: venue.id,
+          },
+          {
+            id: makeUniqueId('notif-mus'),
+            title: '🎉 ¡Acuerdo Confirmado & Show Publicado!',
+            message: `Confirmaste fecha para el ${targetCall?.date} en ${venue.name}.`,
+            timestamp: 'Recién',
+            read: false,
+            type: 'confirmed',
+            targetRole: 'musico',
+            targetEntityId: musician.id,
           },
           ...prev,
         ]);
@@ -876,6 +928,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'offer',
+        targetRole: 'musico',
+        targetEntityId: availData.musicianId || currentMusician?.id,
       },
       ...prev,
     ]);
@@ -890,9 +944,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString().split('T')[0],
     };
 
+    let targetMusicianId: string | undefined;
     setMusicianAvailabilities((prev) =>
       prev.map((item) => {
         if (item.id === availabilityId) {
+          targetMusicianId = item.musicianId;
           return {
             ...item,
             directOffers: [newOffer, ...item.directOffers],
@@ -904,13 +960,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}`,
+        id: makeUniqueId('notif-bar'),
         title: '¡Oferta enviada al músico!',
-        message: `Enviaste una propuesta a ${offerData.venueName} para la fecha indicada.`,
+        message: `Enviaste una propuesta de ${offerData.venueName} para la fecha indicada.`,
         timestamp: 'Recién',
         read: false,
         type: 'offer',
+        targetRole: 'bar',
+        targetEntityId: offerData.venueId || currentVenue?.id,
       },
+      ...(targetMusicianId
+        ? [
+            {
+              id: makeUniqueId('notif-mus'),
+              title: '¡Propuesta directa recibida!',
+              message: `${offerData.venueName} te envió una oferta directa para tocar el ${offerData.date}.`,
+              timestamp: 'Recién',
+              read: false,
+              type: 'offer' as const,
+              targetRole: 'musico' as const,
+              targetEntityId: targetMusicianId,
+            },
+          ]
+        : []),
       ...prev,
     ]);
   };
@@ -971,12 +1043,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setNotifications((prev) => [
           {
-            id: `notif-${Date.now()}`,
+            id: makeUniqueId('notif-mus'),
             title: '🎉 ¡Oferta Aceptada!',
             message: `Acordaste fecha para el ${acceptedOffer?.date} en ${venue.name}. Se sumó a la cartelera.`,
             timestamp: 'Recién',
             read: false,
             type: 'confirmed',
+            targetRole: 'musico',
+            targetEntityId: musician.id,
+          },
+          {
+            id: makeUniqueId('notif-bar'),
+            title: '🎉 ¡Oferta Aceptada!',
+            message: `${musician.stageName} aceptó tocar el ${acceptedOffer?.date} en ${venue.name}.`,
+            timestamp: 'Recién',
+            read: false,
+            type: 'confirmed',
+            targetRole: 'bar',
+            targetEntityId: venue.id,
           },
           ...prev,
         ]);
@@ -1066,13 +1150,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'review',
+        targetRole: reviewData.authorType === 'musician' ? 'musico' : 'bar',
+        targetEntityId: reviewData.authorType === 'musician' ? currentMusician?.id : currentVenue?.id,
       },
       ...prev,
     ]);
   };
 
+  const activeProfileIdentity = resolveActiveProfileIdentity({
+    role,
+    currentVenue,
+    currentMusician,
+    currentPublicUser,
+    venues,
+    publicUsers,
+  });
+
+  const scopedNotifications = notifications.filter((n) =>
+    isNotificationVisibleToProfile(n, activeProfileIdentity)
+  );
+
   const markNotificationsAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setNotifications((prev) =>
+      prev.map((n) =>
+        isNotificationVisibleToProfile(n, activeProfileIdentity) ? { ...n, read: true } : n
+      )
+    );
   };
 
   const markSingleNotificationAsRead = (id: string) => {
@@ -1095,6 +1198,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'espectador',
+        targetEntityId: activePublicUserId,
       },
       ...prev,
     ]);
@@ -1124,6 +1229,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'espectador',
+        targetEntityId: activePublicUserId,
       },
       ...prev,
     ]);
@@ -1162,6 +1269,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'bar',
+        targetEntityId: newProposal.venueId,
       },
       ...prev,
     ]);
@@ -1200,53 +1309,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = eventProposalsRef.current.find((ev) => ev.id === id);
     if (!target) return;
     if (currentVenue && target.venueId !== currentVenue.id) return;
-    const hasConfirmedSlot = target.slots.some(
-      (s) => s.status === 'confirmado' || Boolean(s.assignedMusicianId)
-    );
-    if (!hasConfirmedSlot) return;
-    const nextEvents = eventProposalsRef.current.map((ev) => {
-        if (ev.id === id) {
-          ev.slots.forEach((slot) => {
-            if (slot.assignedMusicianId) {
-              const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
-              sendEventPublishedToMusician({
-                musicianEmail: `${slot.assignedMusicianId}@degira.com.ar`,
-                musicianName: slot.assignedMusicianName || musician?.stageName || 'Músico',
-                eventTitle: ev.title,
-                venueName: ev.venueName,
-                eventDate: ev.date,
-                slotTime: `${slot.startTime} - ${slot.endTime}`,
-                agreedCachetARS: slot.agreedCachetARS ?? ev.baseCachetARS,
-                agreedCachetType: slot.agreedCachetType ?? ev.cachetType,
-              });
-            }
-          });
+    const transition = applyPublishEventTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      eventId: id,
+    });
+    if (!transition.ok) return;
 
-          return { ...ev, status: 'publicada' as const };
-        }
-        return ev;
-      });
-    eventProposalsRef.current = nextEvents;
-    setEventProposals(nextEvents);
+    const venueEmail = resolveVenueEmail(target.venueId, venuesRef.current);
+    transition.updatedEvent.slots.forEach((slot) => {
+      if (slot.assignedMusicianId) {
+        const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
+        sendEventPublishedToMusician({
+          musicianEmail: resolveMusicianEmail(slot.assignedMusicianId),
+          musicianName: slot.assignedMusicianName || musician?.stageName || 'Músico',
+          eventTitle: transition.updatedEvent.title,
+          venueName: transition.updatedEvent.venueName,
+          eventDate: transition.updatedEvent.date,
+          slotTime: `${slot.startTime} - ${slot.endTime}`,
+          agreedCachetARS: slot.agreedCachetARS ?? transition.updatedEvent.baseCachetARS,
+          agreedCachetType: slot.agreedCachetType ?? transition.updatedEvent.cachetType,
+          targetEntityId: slot.assignedMusicianId,
+          senderEntityId: transition.updatedEvent.venueId,
+          fromEmail: venueEmail,
+        });
+      }
+    });
 
-    if (firebaseUser && target) {
-      syncEventProposalBarUpdate(
-        id,
-        { status: 'publicada' },
-        target,
-        firebaseUser.uid
-      ).catch(() => setCloudSyncStatus('error'));
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
+    eventProposalsRef.current = transition.eventProposals;
+    setEventProposals(transition.eventProposals);
+
+    if (firebaseUser) {
+      Promise.all(
+        transition.closedBids.map((closedBid) =>
+          syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
+        )
+      )
+        .then(() =>
+          syncEventProposalBarUpdate(
+            id,
+            { status: 'publicada', slots: transition.updatedEvent.slots },
+            transition.updatedEvent,
+            firebaseUser.uid
+          )
+        )
+        .catch(() => setCloudSyncStatus('error'));
     }
+
+    const confirmedMusicians = target.slots
+      .map((s) => s.assignedMusicianId)
+      .filter((mId): mId is string => Boolean(mId));
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}`,
+        id: makeUniqueId('notif-bar'),
         title: '🎉 Evento Publicado en Cartelera',
-        message: 'El evento ya está disponible para que el público general reserve entradas.',
+        message: `"${target.title}" ya está disponible para que el público general reserve entradas.`,
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'bar',
+        targetEntityId: target.venueId,
       },
+      ...confirmedMusicians.map((mId) => ({
+        id: makeUniqueId('notif-mus'),
+        title: '🎉 ¡Tu show ya está en Cartelera!',
+        message: `${target.venueName} publicó "${target.title}" (${target.date}).`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed' as const,
+        targetRole: 'musico' as const,
+        targetEntityId: mId,
+      })),
       ...prev,
     ]);
   };
@@ -1266,6 +1402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'bar',
+        targetEntityId: venueId,
       },
       ...prev,
     ]);
@@ -1301,6 +1439,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'bar',
+        targetEntityId: target?.venueId || currentVenue?.id,
       },
       ...prev,
     ]);
@@ -1330,6 +1470,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'musico',
+        targetEntityId: musicianId,
       },
       ...prev,
     ]);
@@ -1409,7 +1551,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch(() => setCloudSyncStatus('error'));
     }
 
-    const barEmail = targetEvent?.venueId === 'venue-2' ? 'bar2@degira.com.ar' : 'bar1@degira.com.ar';
+    const barEmail = resolveVenueEmail(targetEvent?.venueId, venuesRef.current);
+    const musEmail = resolveMusicianEmail(mus.id);
     const cachetSummary = formatCachet(effectiveCachetARS, effectiveCachetType);
 
     sendProposalReceivedEmailToBar({
@@ -1420,6 +1563,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       slotTime: targetSlot ? `${targetSlot.startTime} - ${targetSlot.endTime}` : '21:00',
       cachetARS: effectiveCachetARS,
       cachetType: effectiveCachetType,
+      targetEntityId: targetEvent?.venueId,
+      senderEntityId: mus.id,
+      fromEmail: musEmail,
     });
 
     setNotifications((prev) => [
@@ -1430,6 +1576,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'musico',
+        targetEntityId: mus.id,
       },
       {
         id: makeUniqueId('notif-bar'),
@@ -1438,6 +1586,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: targetEvent?.venueId,
       },
       ...prev,
     ]);
@@ -1475,6 +1625,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'musico',
+        targetEntityId: bid.musicianId,
       },
       {
         id: makeUniqueId('notif-bar'),
@@ -1483,6 +1635,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: event?.venueId,
       },
       ...prev,
     ]);
@@ -1527,6 +1681,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'musico',
+        targetEntityId: transition.updatedBid.musicianId,
       },
       {
         id: makeUniqueId('notif-bar-retract'),
@@ -1535,6 +1691,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: transition.event.venueId,
       },
       ...prev,
     ]);
@@ -1574,7 +1732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: false, message: transition.message };
     }
 
-    const { updatedBid, updatedEvent, event } = transition;
+    const { updatedBid, updatedEvent, event, autoRejectedBids } = transition;
     const newProposedCachet = updatedBid.proposedCachetARS;
     const newCachetLabel = formatCachet(newProposedCachet, updatedBid.cachetType);
 
@@ -1589,7 +1747,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (action === 'accept') {
       sendPushNotification({
         title: '🎸 ¡Propuesta de Fecha Aceptada!',
-        body: `${event.venueName} aceptó el acuerdo para el show "${event.title}".`,
+        body: `${role === 'bar' ? event.venueName : updatedBid.musicianName} aceptó el acuerdo para el show "${event.title}".`,
         targetRole: role === 'bar' ? 'musico' : 'bar',
         url: '/#acuerdos',
       });
@@ -1612,8 +1770,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (firebaseUser) {
       const syncPromise =
         role === 'bar'
-          ? syncSlotBidBarResponse(updatedBid, event, firebaseUser.uid)
-          : syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid);
+          ? Promise.all([
+              syncSlotBidBarResponse(updatedBid, event, firebaseUser.uid),
+              ...autoRejectedBids.map((rejBid) =>
+                syncSlotBidBarResponse(rejBid, event, firebaseUser.uid)
+              ),
+            ])
+          : Promise.all([
+              syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid),
+              ...autoRejectedBids.map((rejBid) =>
+                syncSlotBidBarResponse(rejBid, event, firebaseUser.uid)
+              ),
+            ]);
 
       syncPromise
         .then(() => {
@@ -1631,7 +1799,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch(() => setCloudSyncStatus('error'));
     }
 
-    const musEmail = updatedBid.musicianId === 'mus-1' ? 'musico1@degira.com.ar' : 'musico2@degira.com.ar';
+    const musEmail = resolveMusicianEmail(updatedBid.musicianId);
+    const barEmail = resolveVenueEmail(event.venueId, venuesRef.current);
     sendNegotiationUpdateEmailToMusician({
       musicianEmail: musEmail,
       musicianName: updatedBid.musicianName,
@@ -1641,26 +1810,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       newCachetARS: newProposedCachet,
       cachetType: updatedBid.cachetType,
       note,
+      toEmail: role === 'bar' ? musEmail : barEmail,
+      targetRole: role === 'bar' ? 'musico' : 'bar',
+      targetEntityId: role === 'bar' ? updatedBid.musicianId : event.venueId,
+      senderRole: role === 'bar' ? 'bar' : 'musico',
+      senderEntityId: role === 'bar' ? event.venueId : updatedBid.musicianId,
+      fromEmail: role === 'bar' ? barEmail : musEmail,
     });
 
     setNotifications((prev) => [
       {
-        id: makeUniqueId('notif-neg'),
+        id: makeUniqueId('notif-neg-bar'),
         title:
           action === 'accept'
-            ? '🎉 Propuesta de Fecha Aceptada'
+            ? '🎉 Acuerdo Confirmado'
             : action === 'counter'
-            ? '💬 Contraoferta de Caché Registrada'
+            ? '💬 Contraoferta Registrada'
             : '🔓 Horario Liberado tras Rechazo',
         message:
           action === 'accept'
-            ? `${updatedBid.musicianName} y ${event.venueName} confirmaron su acuerdo para "${event.title}".`
+            ? `Se confirmó el acuerdo con ${updatedBid.musicianName} (${newCachetLabel}) para "${event.title}".`
             : action === 'counter'
-            ? `Se propuso un nuevo caché (${newCachetLabel}) para "${event.title}".`
-            : `La propuesta de ${updatedBid.musicianName} para "${event.title}" fue rechazada y el horario volvió a abrirse libre.`,
+            ? `${role === 'bar' ? 'Enviaste contraoferta' : `${updatedBid.musicianName} contrapropuso`} (${newCachetLabel}) para "${event.title}".`
+            : `La propuesta de ${updatedBid.musicianName} para "${event.title}" fue rechazada y el horario volvió a quedar libre.`,
         timestamp: 'Recién',
         read: false,
         type: action === 'accept' ? 'confirmed' : 'application',
+        targetRole: 'bar',
+        targetEntityId: event.venueId,
+      },
+      {
+        id: makeUniqueId('notif-neg-mus'),
+        title:
+          action === 'accept'
+            ? '🎉 ¡Tu Fecha Quedó Confirmada!'
+            : action === 'counter'
+            ? '💬 Contraoferta en Negociación'
+            : '🔓 Propuesta Cerrada • Horario Libre',
+        message:
+          action === 'accept'
+            ? `Acuerdo confirmado con ${event.venueName} (${newCachetLabel}) para "${event.title}".`
+            : action === 'counter'
+            ? `${role === 'musico' ? 'Enviaste contraoferta' : `${event.venueName} contrapropuso`} (${newCachetLabel}) para "${event.title}".`
+            : `La negociación en ${event.venueName} para "${event.title}" fue rechazada y el horario volvió a abrirse.`,
+        timestamp: 'Recién',
+        read: false,
+        type: action === 'accept' ? 'confirmed' : 'application',
+        targetRole: 'musico',
+        targetEntityId: updatedBid.musicianId,
       },
       ...prev,
     ]);
@@ -1673,54 +1870,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = eventProposalsRef.current.find((e) => e.id === proposalId);
     if (!target) return;
     if (currentVenue && target.venueId !== currentVenue.id) return;
-    const hasConfirmedSlot = target.slots.some(
-      (s) => s.status === 'confirmado' || Boolean(s.assignedMusicianId)
-    );
-    if (!hasConfirmedSlot) return;
+    const transition = applyPublishEventTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      eventId: proposalId,
+    });
+    if (!transition.ok) return;
 
-    const nextEvents = eventProposalsRef.current.map((ev) => {
-        if (ev.id === proposalId) {
-          ev.slots.forEach((slot) => {
-            if (slot.assignedMusicianId) {
-              const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
-              sendEventPublishedToMusician({
-                musicianEmail: `${slot.assignedMusicianId}@degira.com.ar`,
-                musicianName: slot.assignedMusicianName || musician?.stageName || 'Músico',
-                eventTitle: ev.title,
-                venueName: ev.venueName,
-                eventDate: ev.date,
-                slotTime: `${slot.startTime} - ${slot.endTime}`,
-                agreedCachetARS: slot.agreedCachetARS ?? ev.baseCachetARS,
-                agreedCachetType: slot.agreedCachetType ?? ev.cachetType,
-              });
-            }
-          });
+    const venueEmail = resolveVenueEmail(target.venueId, venuesRef.current);
+    transition.updatedEvent.slots.forEach((slot) => {
+      if (slot.assignedMusicianId) {
+        const musician = musicians.find((m) => m.id === slot.assignedMusicianId);
+        sendEventPublishedToMusician({
+          musicianEmail: resolveMusicianEmail(slot.assignedMusicianId),
+          musicianName: slot.assignedMusicianName || musician?.stageName || 'Músico',
+          eventTitle: transition.updatedEvent.title,
+          venueName: transition.updatedEvent.venueName,
+          eventDate: transition.updatedEvent.date,
+          slotTime: `${slot.startTime} - ${slot.endTime}`,
+          agreedCachetARS: slot.agreedCachetARS ?? transition.updatedEvent.baseCachetARS,
+          agreedCachetType: slot.agreedCachetType ?? transition.updatedEvent.cachetType,
+          targetEntityId: slot.assignedMusicianId,
+          senderEntityId: transition.updatedEvent.venueId,
+          fromEmail: venueEmail,
+        });
+      }
+    });
 
-          return { ...ev, status: 'publicada' as const };
-        }
-        return ev;
-      });
-    eventProposalsRef.current = nextEvents;
-    setEventProposals(nextEvents);
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
+    eventProposalsRef.current = transition.eventProposals;
+    setEventProposals(transition.eventProposals);
 
     if (firebaseUser) {
-      syncEventProposalBarUpdate(
-        proposalId,
-        { status: 'publicada' },
-        target,
-        firebaseUser.uid
-      ).catch(() => setCloudSyncStatus('error'));
+      Promise.all(
+        transition.closedBids.map((closedBid) =>
+          syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
+        )
+      )
+        .then(() =>
+          syncEventProposalBarUpdate(
+            proposalId,
+            { status: 'publicada', slots: transition.updatedEvent.slots },
+            transition.updatedEvent,
+            firebaseUser.uid
+          )
+        )
+        .catch(() => setCloudSyncStatus('error'));
     }
+
+    const confirmedMusicians = target.slots
+      .map((s) => s.assignedMusicianId)
+      .filter((mId): mId is string => Boolean(mId));
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}`,
+        id: makeUniqueId('notif-bar'),
         title: '🎉 Evento Aprobado y Publicado en Cartelera',
         message: `Has publicado "${target.title}" en la Cartelera de Buenos Aires. El público ya puede reservar.`,
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'bar',
+        targetEntityId: target.venueId,
       },
+      ...confirmedMusicians.map((mId) => ({
+        id: makeUniqueId('notif-mus'),
+        title: '🎉 ¡Evento Publicado en Cartelera!',
+        message: `${target.venueName} publicó "${target.title}" (${target.date}).`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed' as const,
+        targetRole: 'musico' as const,
+        targetEntityId: mId,
+      })),
       ...prev,
     ]);
 
@@ -1762,6 +1985,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'bar',
+        targetEntityId: newVenue.id,
       },
       ...prev,
     ]);
@@ -1817,6 +2042,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       partySize,
       totalARS: 8000 * partySize,
       eventCode: newReservation.eventCode,
+      targetEntityId: newReservation.userId,
     });
 
     setNotifications((prev) => [
@@ -1827,6 +2053,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: newReservation.userId,
+        targetEmail: resolvedEmail,
       },
       ...prev,
     ]);
@@ -1849,12 +2078,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updatedResForCloud = updated;
 
           sendPaymentUploadedAlertToBar({
-            barEmail: 'bar1@degira.com.ar',
+            barEmail: resolveVenueEmail(res.venueId, venuesRef.current),
             venueName: res.venueName,
             eventTitle: res.eventTitle,
             eventCode: res.eventCode,
             userName: res.userName,
             amountARS: res.totalARS,
+            targetEntityId: res.venueId,
+            senderEntityId: res.userId,
+            fromEmail: res.userEmail,
           });
 
           return updated;
@@ -1869,17 +2101,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        title: '📄 Comprobante enviado al bar',
-        message: 'El anfitrión de Bar Test 1 recibió tu comprobante y confirmará el pago en breve.',
-        timestamp: 'Recién',
-        read: false,
-        type: 'confirmed',
-      },
-      ...prev,
-    ]);
+    if (updatedResForCloud) {
+      const uploadedRes = updatedResForCloud;
+      setNotifications((prev) => [
+        {
+          id: makeUniqueId('notif-pub'),
+          title: '📄 Comprobante enviado al bar',
+          message: `El anfitrión de ${uploadedRes.venueName} recibió tu comprobante y confirmará el pago en breve.`,
+          timestamp: 'Recién',
+          read: false,
+          type: 'confirmed',
+          targetRole: 'espectador',
+          targetEntityId: uploadedRes.userId,
+          targetEmail: uploadedRes.userEmail,
+        },
+        {
+          id: makeUniqueId('notif-bar'),
+          title: '🔔 Nuevo Comprobante Recibido',
+          message: `${uploadedRes.userName} subió su comprobante ($${uploadedRes.totalARS.toLocaleString('es-AR')}) para ${uploadedRes.eventTitle}.`,
+          timestamp: 'Recién',
+          read: false,
+          type: 'application',
+          targetRole: 'bar',
+          targetEntityId: uploadedRes.venueId,
+        },
+        ...prev,
+      ]);
+    }
   };
 
   const confirmReservationPayment = (reservationId: string) => {
@@ -1935,16 +2183,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       eventTime: targetRes.eventStartTime,
       partySize: targetRes.partySize,
       qrTicketCode: qrCode,
+      targetEntityId: targetRes.userId,
+      senderEntityId: targetRes.venueId,
+      fromEmail: resolveVenueEmail(targetRes.venueId, venuesRef.current),
     });
 
     setNotifications((prev) => [
       {
-        id: `notif-${Date.now()}`,
+        id: makeUniqueId('notif-pub'),
         title: '🎟️ Pago Confirmado & Pase QR Emitido',
-        message: `El bar confirmó el pago de ${targetRes.userName} (${targetRes.partySize} ${targetRes.partySize === 1 ? 'persona' : 'personas'}) y se descontó el cupo del evento.`,
+        message: `${targetRes.venueName} confirmó tu pago (${targetRes.partySize} ${targetRes.partySize === 1 ? 'persona' : 'personas'}). Ya tenés tu Pase QR disponible.`,
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: 'espectador',
+        targetEntityId: targetRes.userId,
+        targetEmail: targetRes.userEmail,
+      },
+      {
+        id: makeUniqueId('notif-bar'),
+        title: '🎟️ Reserva Confirmada & QR Emitido',
+        message: `Confirmaste el pago de ${targetRes.userName} (${targetRes.partySize} ${targetRes.partySize === 1 ? 'persona' : 'personas'}) para ${targetRes.eventTitle}.`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'confirmed',
+        targetRole: 'bar',
+        targetEntityId: targetRes.venueId,
       },
       ...prev,
     ]);
@@ -1976,6 +2240,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         eventTitle: target.eventTitle,
         venueName: target.venueName,
         partySize: target.partySize,
+        targetEntityId: target.userId,
       });
     }
 
@@ -1987,6 +2252,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: target.userId,
+        targetEmail: target.userEmail,
       },
       ...prev,
     ]);
@@ -2039,6 +2307,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: target.userId,
+        targetEmail: target.userEmail,
       },
       ...prev,
     ]);
@@ -2105,6 +2376,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'bar',
+        targetEntityId: res.venueId,
       },
       ...prev,
     ]);
@@ -2152,6 +2425,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: activePublicUserId,
+        targetEmail: resolvePublicUserEmail(activePublicUserId, publicUsers),
       },
       ...prev,
     ]);
@@ -2206,6 +2482,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'review',
+        targetRole: reviewData.fromRole,
+        targetEntityId: reviewData.fromUserId,
       },
       ...prev,
     ]);
@@ -2237,6 +2515,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
+        targetRole: 'bar',
+        targetEntityId: 'venue-1',
       },
     ]);
   };
@@ -2266,6 +2546,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'confirmed',
+        targetRole: account.role,
+        targetEntityId: account.entityId,
+        targetEmail: account.email,
       },
       ...prev,
     ]);
@@ -2314,6 +2597,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: target.userId,
+        targetEmail: target.userEmail,
       },
       ...prev,
     ]);
@@ -2339,6 +2625,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: 'Recién',
         read: false,
         type: 'system',
+        targetRole: 'espectador',
+        targetEntityId: activePublicUserId,
       },
       ...prev,
     ]);
@@ -2362,57 +2650,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         userName: att.userName,
         eventTitle: ev.title,
         role: 'espectador',
+        targetEntityId: att.userId,
       });
     });
 
     // Disparar email al Bar anfitrión
-    const venueEmail = ev.venueId === 'venue-2' ? 'bar2@degira.com.ar' : 'bar1@degira.com.ar';
+    const venueEmail = resolveVenueEmail(ev.venueId, venuesRef.current);
     sendReviewReminderEmail({
       toEmail: venueEmail,
       userName: ev.venueName,
       eventTitle: ev.title,
       role: 'bar',
+      targetEntityId: ev.venueId,
     });
 
     // Disparar email a los Músicos que tocaron en el evento
-    ev.slots.forEach((s) => {
+    const confirmedSlots = ev.slots.filter((s) => s.assignedMusicianId && s.assignedMusicianName);
+    confirmedSlots.forEach((s) => {
       if (s.assignedMusicianId && s.assignedMusicianName) {
-        const musicianEmail = s.assignedMusicianId === 'mus-2' ? 'musico2@degira.com.ar' : 'musico1@degira.com.ar';
+        const musicianEmail = resolveMusicianEmail(s.assignedMusicianId);
         sendReviewReminderEmail({
           toEmail: musicianEmail,
           userName: s.assignedMusicianName,
           eventTitle: ev.title,
           role: 'musico',
+          targetEntityId: s.assignedMusicianId,
         });
       }
     });
 
-    // Notificaciones en el perfil de cada panel
+    // Notificaciones estrictamente dirigidas a cada participante del evento
+    const attendeeNotifications: NotificationItem[] = confirmedAttendees.map((att) => ({
+      id: makeUniqueId('notif-fb-pub'),
+      title: `⭐ ¿Cómo estuvo la noche en ${ev.venueName}?`,
+      message: `Ya pasaron 2 horas desde que finalizó "${ev.title}". Calificá al bar y a los músicos (${reviewRef}).`,
+      timestamp: 'Recién',
+      read: false,
+      type: 'review',
+      targetRole: 'espectador',
+      targetEntityId: att.userId,
+      targetEmail: att.userEmail,
+    }));
+
+    const musicianNotifications: NotificationItem[] = confirmedSlots.map((s) => ({
+      id: makeUniqueId('notif-fb-mus'),
+      title: `⭐ Calificá la sala y hospitalidad en ${ev.venueName}`,
+      message: `¿Cómo te trató el anfitrión en "${ev.title}"? Ya podés dejar tu reseña bilateral tras cumplirse las 2 horas post-show.`,
+      timestamp: 'Recién',
+      read: false,
+      type: 'review',
+      targetRole: 'musico',
+      targetEntityId: s.assignedMusicianId,
+    }));
+
     setNotifications((prev) => [
+      ...attendeeNotifications,
       {
-        id: `notif-fb-${Date.now()}-pub`,
-        title: `⭐ ¿Cómo estuvo la noche en ${ev.venueName}?`,
-        message: `Ya pasaron 2 horas desde que finalizó "${ev.title}". Calificá al bar y a los músicos (${reviewRef}).`,
-        timestamp: 'Recién',
-        read: false,
-        type: 'review',
-      },
-      {
-        id: `notif-fb-${Date.now()}-bar`,
+        id: makeUniqueId('notif-fb-bar'),
         title: '⭐ Calificá la actuación de los músicos',
         message: `El show "${ev.title}" terminó hace más de 2 horas. Evaluá el cumplimiento técnico y feedback del recital.`,
         timestamp: 'Recién',
         read: false,
         type: 'review',
+        targetRole: 'bar',
+        targetEntityId: ev.venueId,
       },
-      {
-        id: `notif-fb-${Date.now()}-mus`,
-        title: `⭐ Calificá la sala y hospitalidad en ${ev.venueName}`,
-        message: `¿Cómo te trató el anfitrión en "${ev.title}"? Ya podés dejar tu reseña bilateral tras cumplirse las 2 horas post-show.`,
-        timestamp: 'Recién',
-        read: false,
-        type: 'review',
-      },
+      ...musicianNotifications,
       ...prev,
     ]);
 
@@ -2445,17 +2748,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = () => {
     clearActiveSession();
     setStoredUserName('');
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        title: 'Sesión cerrada',
-        message: 'Has cerrado sesión exitosamente. Podés ingresar con otra cuenta o perfil cuando quieras.',
-        timestamp: 'Recién',
-        read: false,
-        type: 'confirmed',
-      },
-      ...prev,
-    ]);
   };
 
   return (
@@ -2475,7 +2767,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openCalls,
         musicianAvailabilities,
         liveShows,
-        notifications,
+        notifications: scopedNotifications,
         reservations,
         eventProposals,
         slotBids,

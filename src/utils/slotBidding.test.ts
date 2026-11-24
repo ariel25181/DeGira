@@ -5,6 +5,7 @@ import {
   applyBidResponseTransition,
   applyBidRetractionTransition,
   applyBidSubmissionTransition,
+  applyPublishEventTransition,
   applySlotAcceptToProposal,
   applySlotReleaseToProposal,
   canSubmitBidForSlot,
@@ -1587,4 +1588,120 @@ test('49. rejects invalid counterMusiciansCount (<1 or >30) during musician coun
   });
   assert.equal(badHigh.allowed, false);
 });
+
+test('50. Bar viewerRole never sets isLockedByViewer or wasPreviouslyRejectedForViewer even if viewerMusicianId is provided', () => {
+  const ev = makeProposal({
+    slots: [
+      { id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'negociando' },
+      { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'libre' },
+    ],
+  });
+  const activeBid = makeBid({ id: 'b-active', slotId: 'slot-1', musicianId: 'mus-1', status: 'pendiente_bar' });
+  const rejectedBid = makeBid({ id: 'b-rej', slotId: 'slot-2', musicianId: 'mus-1', status: 'rechazada' });
+
+  const slot1ForBar = getSlotDisplayState({
+    proposal: ev,
+    slot: ev.slots[0],
+    slotBids: [activeBid, rejectedBid],
+    viewerRole: 'bar',
+    viewerMusicianId: 'mus-1',
+  });
+  assert.equal(slot1ForBar.availability, 'bloqueado');
+  assert.equal(slot1ForBar.isLockedByViewer, false);
+  assert.equal(slot1ForBar.wasPreviouslyRejectedForViewer, false);
+
+  const slot2ForBar = getSlotDisplayState({
+    proposal: ev,
+    slot: ev.slots[1],
+    slotBids: [activeBid, rejectedBid],
+    viewerRole: 'bar',
+    viewerMusicianId: 'mus-1',
+  });
+  assert.equal(slot2ForBar.availability, 'libre');
+  assert.equal(slot2ForBar.isLockedByViewer, false);
+  assert.equal(slot2ForBar.wasPreviouslyRejectedForViewer, false);
+});
+
+test('51. accepting one bid on a slot auto-rejects any competing active sibling bids on the same slot', () => {
+  const ev = makeProposal({
+    slots: [{ id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'negociando' }],
+  });
+  const bid1 = makeBid({ id: 'b-1', slotId: 'slot-1', musicianId: 'mus-1', status: 'contraoferta_musico', proposedCachetARS: 80000 });
+  const bid2 = makeBid({ id: 'b-2', slotId: 'slot-1', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'pendiente_bar', proposedCachetARS: 75000 });
+
+  const res = applyBidResponseTransition({
+    eventProposals: [ev],
+    slotBids: [bid1, bid2],
+    bidId: 'b-1',
+    actorRole: 'bar',
+    actorEntityId: 'venue-1',
+    action: 'accept',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.updatedBid.status, 'aceptada');
+  assert.equal(res.autoRejectedBids.length, 1);
+  assert.equal(res.autoRejectedBids[0].id, 'b-2');
+  assert.equal(res.autoRejectedBids[0].status, 'rechazada');
+  assert.equal(res.slotBids.find((b) => b.id === 'b-2')?.status, 'rechazada');
+  assert.equal(res.updatedEvent?.slots[0].status, 'confirmado');
+});
+
+test('52. applyPublishEventTransition closes unaccepted active bids on publish and resets unconfirmed negociando slots to libre', () => {
+  const ev = makeProposal({
+    id: 'ev-pub-cleanup',
+    status: 'para_publicar',
+    slots: [
+      {
+        id: 'slot-1',
+        startTime: '20:30',
+        endTime: '21:30',
+        requiredMusicians: 2,
+        status: 'confirmado',
+        assignedMusicianId: 'mus-1',
+        assignedMusicianName: 'Músico Test 1',
+        agreedCachetARS: 60000,
+      },
+      { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'negociando' },
+      { id: 'slot-3', startTime: '22:30', endTime: '23:30', requiredMusicians: 2, status: 'negociando' },
+    ],
+  });
+  const otherEv = makeBar2Proposal({ id: 'ev-other' });
+
+  const bids: MusicianSlotBid[] = [
+    makeBid({ id: 'b-acc', eventId: 'ev-pub-cleanup', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' }),
+    makeBid({ id: 'b-pend', eventId: 'ev-pub-cleanup', slotId: 'slot-2', musicianId: 'mus-2', status: 'pendiente_bar' }),
+    makeBid({ id: 'b-ctr', eventId: 'ev-pub-cleanup', slotId: 'slot-3', musicianId: 'mus-3', status: 'contraoferta_bar' }),
+    makeBid({ id: 'b-other', eventId: 'ev-other', slotId: 'b2-slot-1', musicianId: 'mus-2', status: 'pendiente_bar' }),
+  ];
+
+  const pubRes = applyPublishEventTransition({
+    eventProposals: [ev, otherEv],
+    slotBids: bids,
+    eventId: 'ev-pub-cleanup',
+    nowIso: '2026-12-01T12:00:00.000Z',
+    historyIdPrefix: 'h-test',
+  });
+
+  assert.equal(pubRes.ok, true);
+  assert.equal(pubRes.updatedEvent.status, 'publicada');
+  assert.equal(pubRes.updatedEvent.slots[0].status, 'confirmado');
+  assert.equal(pubRes.updatedEvent.slots[1].status, 'libre');
+  assert.equal(pubRes.updatedEvent.slots[2].status, 'libre');
+  assert.equal(pubRes.closedBids.length, 2);
+  assert.equal(pubRes.slotBids.find((b) => b.id === 'b-acc')?.status, 'aceptada');
+  assert.equal(pubRes.slotBids.find((b) => b.id === 'b-pend')?.status, 'rechazada');
+  assert.equal(pubRes.slotBids.find((b) => b.id === 'b-ctr')?.status, 'rechazada');
+  // Bids belonging to other events remain untouched
+  assert.equal(pubRes.slotBids.find((b) => b.id === 'b-other')?.status, 'pendiente_bar');
+
+  // Cannot publish without at least one confirmed slot
+  const noConfRes = applyPublishEventTransition({
+    eventProposals: [makeProposal({ id: 'ev-no-conf' })],
+    slotBids: [],
+    eventId: 'ev-no-conf',
+  });
+  assert.equal(noConfRes.ok, false);
+});
+
+
 

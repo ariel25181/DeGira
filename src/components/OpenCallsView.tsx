@@ -103,6 +103,19 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     })
   );
 
+  const barScopedEvents =
+    role === 'bar'
+      ? eventProposals.filter((p) => !currentVenue?.id || p.venueId === currentVenue.id)
+      : eventProposals;
+
+  const barStatusCounts = {
+    todos: barScopedEvents.length,
+    propuesta: barScopedEvents.filter((p) => p.status === 'propuesta').length,
+    para_publicar: barScopedEvents.filter((p) => p.status === 'para_publicar').length,
+    publicada: barScopedEvents.filter((p) => p.status === 'publicada').length,
+    agotada: barScopedEvents.filter((p) => p.status === 'agotada').length,
+  };
+
   const venueEventCounts = new Map<string, number>();
   eventProposals.forEach((ev) => {
     venueEventCounts.set(ev.venueId, (venueEventCounts.get(ev.venueId) || 0) + 1);
@@ -244,14 +257,14 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                 }`}
               >
                 {st === 'todos'
-                  ? 'Todas'
+                  ? `Todas (${barStatusCounts.todos})`
                   : st === 'propuesta'
-                  ? 'Propuestas'
+                  ? `Propuestas (${barStatusCounts.propuesta})`
                   : st === 'para_publicar'
-                  ? 'Para Publicar'
+                  ? `Para Publicar (${barStatusCounts.para_publicar})`
                   : st === 'publicada'
-                  ? 'Publicadas'
-                  : 'Agotadas'}
+                  ? `Publicadas (${barStatusCounts.publicada})`
+                  : `Agotadas (${barStatusCounts.agotada})`}
               </button>
             ))}
           </div>
@@ -261,13 +274,24 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
       {/* Proposals List */}
       <div className="space-y-4">
         {visibleProposals.length === 0 ? (
-          <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
+          <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-3">
             <p className="text-slate-300 font-medium">No hay propuestas en este estado.</p>
             <p className="text-xs text-slate-500">
               {role === 'musico'
                 ? 'Las propuestas acordadas pasan a estado publicado y van a la Cartelera.'
+                : barStatusCounts.todos > 0 && barStatusFilter !== 'todos'
+                ? `Este local tiene ${barStatusCounts.todos} ${barStatusCounts.todos === 1 ? 'evento activo' : 'eventos activos'} en otros estados (Para Publicar / Publicadas).`
                 : 'Creá una nueva propuesta con el botón superior.'}
             </p>
+            {role === 'bar' && barStatusCounts.todos > 0 && barStatusFilter !== 'todos' && (
+              <button
+                type="button"
+                onClick={() => setBarStatusFilter('todos')}
+                className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-colors"
+              >
+                Ver Todas ({barStatusCounts.todos})
+              </button>
+            )}
           </div>
         ) : (
           visibleProposals.map((proposal) => {
@@ -283,7 +307,11 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                   parentEvent: proposal,
                 })
             );
-            const hasAtLeastOneSlotCovered = proposal.slots.some((s) => s.assignedMusicianId || s.status === 'confirmado');
+            const hasAtLeastOneSlotCovered = proposal.slots.some(
+              (s) =>
+                s.status === 'confirmado' ||
+                (s.status !== 'libre' && s.status !== 'negociando' && Boolean(s.assignedMusicianId))
+            );
 
             return (
               <div
@@ -307,9 +335,27 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                         >
                           {proposal.title}
                         </h3>
-                        <div className="flex items-center text-xs text-slate-400 space-x-1 mt-0.5 min-w-0">
-                          <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="truncate">{proposal.venueName} • {proposal.venueNeighborhood}</span>
+                        <div className="flex flex-wrap items-center text-xs text-slate-400 gap-x-2 gap-y-0.5 mt-0.5 min-w-0">
+                          <span className="inline-flex items-center space-x-1 min-w-0">
+                            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">
+                              {proposal.venueName} • {proposal.venueNeighborhood}
+                              {proposal.venueAddress ? ` (${proposal.venueAddress})` : ''}
+                            </span>
+                          </span>
+                          {proposal.venueAddress && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                `${proposal.venueName}, ${proposal.venueAddress}, ${proposal.venueNeighborhood}, Buenos Aires`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[10px] font-semibold transition-colors shrink-0"
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" />
+                              <span>Ver en Google Maps</span>
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -391,7 +437,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                           slot,
                           slotBids,
                           viewerRole: role,
-                          viewerMusicianId: currentMusician?.id,
+                          viewerMusicianId: role === 'musico' ? currentMusician?.id : undefined,
                         });
 
                         return (
@@ -417,28 +463,45 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
                               {slotState.availability === 'confirmado' ? (
                                 <div className="text-emerald-400 font-bold flex items-center gap-1 mt-0.5">
-                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  <Check className="w-3.5 h-3.5 stroke-[3] shrink-0" />
                                   <span>
-                                    {role === 'bar' || slotState.isLockedByViewer
+                                    {role === 'bar'
                                       ? `Acordado con: ${slotState.assignedMusicianName || 'Músico confirmado'} (${formatCachet(
                                           slotState.agreedCachetARS ?? proposal.baseCachetARS,
                                           slotState.agreedCachetType ?? proposal.cachetType
-                                        )})`
-                                      : 'Horario reservado'}
+                                        )}) • Músico y bar ya acordaron este horario`
+                                      : slotState.isLockedByViewer
+                                      ? `Acordado con: ${slotState.assignedMusicianName || 'Tu banda'} (${formatCachet(
+                                          slotState.agreedCachetARS ?? proposal.baseCachetARS,
+                                          slotState.agreedCachetType ?? proposal.cachetType
+                                        )}) • Ya acordaste este horario con el bar`
+                                      : `Horario reservado • El bar y ${slotState.assignedMusicianName || 'un músico'} ya acordaron este horario`}
                                   </span>
                                 </div>
                               ) : slotState.availability === 'bloqueado' ? (
                                 <div className="text-amber-300 font-semibold flex items-center gap-1.5 mt-0.5 text-[11px]">
                                   <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                                   <span>
-                                    {slotState.isLockedByViewer
-                                      ? 'Ya te postulaste • Horario bloqueado mientras se revisa tu propuesta'
+                                    {role === 'bar'
+                                      ? slotState.activeBid?.status === 'contraoferta_bar'
+                                        ? `Contraoferta enviada a ${slotState.activeBid.musicianName} • Esperando respuesta del músico (ver abajo)`
+                                        : slotState.activeBid?.status === 'contraoferta_musico'
+                                        ? `Contraoferta de ${slotState.activeBid.musicianName} pendiente de tu revisión (ver abajo)`
+                                        : `Propuesta de ${slotState.activeBid?.musicianName || 'músico'} pendiente de tu revisión (ver abajo)`
+                                      : slotState.isLockedByViewer
+                                      ? slotState.activeBid?.status === 'contraoferta_bar'
+                                        ? 'Contraoferta del bar recibida • Respondé abajo o en Mis Postulaciones'
+                                        : 'Ya te postulaste • Horario bloqueado mientras se revisa tu propuesta'
                                       : 'Horario bloqueado • Propuesta de otro músico en revisión'}
                                   </span>
                                 </div>
                               ) : (
                                 <div className="text-slate-400 text-[11px] mt-0.5">
-                                  {slotState.wasPreviouslyRejectedForViewer
+                                  {role === 'bar'
+                                    ? proposal.status === 'publicada' || proposal.status === 'agotada' || proposal.status === 'cancelada'
+                                      ? 'Horario sin músico asignado (evento cerrado en cartelera)'
+                                      : 'Horario libre • Esperando postulaciones de músicos'
+                                    : slotState.wasPreviouslyRejectedForViewer
                                     ? 'Disponible para postular • Horario liberado tras propuesta anterior rechazada'
                                     : 'Disponible para postular'}
                                 </div>
@@ -530,27 +593,45 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     <div className="space-y-3">
                       {proposalBids.map((bid) => {
                         const isCounteringThis = counterInputId === bid.id;
+                        const bidSlot = proposal.slots.find((s) => s.id === bid.slotId);
+                        const hasAcceptedOtherInSlot = proposalBids.some(
+                          (b) =>
+                            b.id !== bid.id &&
+                            b.slotId === bid.slotId &&
+                            !b.retracted &&
+                            b.status === 'aceptada'
+                        );
+                        const isEventClosedForNeg =
+                          proposal.status === 'publicada' ||
+                          proposal.status === 'agotada' ||
+                          proposal.status === 'cancelada';
 
                         return (
                           <div
                             key={bid.id}
                             className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
-                              bid.status === 'aceptada'
+                              bid.status === 'aceptada' && !bid.retracted
                                 ? 'bg-emerald-950/20 border-emerald-500/40'
-                                : bid.status === 'rechazada'
+                                : bid.status === 'rechazada' || bid.retracted
                                 ? 'bg-slate-900 border-slate-800 opacity-60'
                                 : 'bg-slate-900 border-slate-800'
                             }`}
                           >
-                            {/* Top Header: Musician + Count left, Cachet + Status Badge right (zero overflow on 390px) */}
+                            {/* Top Header: Musician + Slot + Count left, Cachet + Status Badge right (zero overflow on 390px) */}
                             <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
+                              <div className="min-w-0 flex-1 space-y-1">
                                 <div className="font-extrabold text-sm text-slate-100 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                                   <span className="break-words">{bid.musicianName}</span>
                                   <span className="text-[11px] text-slate-400 font-normal whitespace-nowrap">
                                     ({bid.musiciansCount} {bid.musiciansCount === 1 ? 'músico' : 'músicos'} en escenario)
                                   </span>
                                 </div>
+                                {bidSlot && (
+                                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold text-amber-300">
+                                    <Clock className="w-3 h-3 shrink-0" />
+                                    <span>Horario {bidSlot.startTime} a {bidSlot.endTime} hs</span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="text-right shrink-0 max-w-[46%]">
@@ -558,14 +639,20 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                   {formatCachet(bid.proposedCachetARS, bid.cachetType)}
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-slate-800 text-slate-300 leading-tight mt-0.5">
-                                  {bid.status === 'aceptada'
-                                    ? 'Aceptada'
+                                  {bid.retracted
+                                    ? 'Retractada'
+                                    : bid.status === 'aceptada'
+                                    ? 'Aceptada • Acordada'
+                                    : bid.status === 'rechazada'
+                                    ? 'Rechazada'
+                                    : isEventClosedForNeg
+                                    ? 'Cerrada (Evento publicado)'
+                                    : hasAcceptedOtherInSlot || bidSlot?.status === 'confirmado'
+                                    ? 'Cerrada (Horario acordado)'
                                     : bid.status === 'contraoferta_bar'
                                     ? 'Contraoferta del Bar'
                                     : bid.status === 'contraoferta_musico'
                                     ? 'Contraoferta del Músico'
-                                    : bid.status === 'rechazada'
-                                    ? 'Rechazada'
                                     : 'Pendiente de Revisión'}
                                 </span>
                               </div>
@@ -654,138 +741,223 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                             </div>
 
                             {/* Negotiation Actions for Bar */}
-                            {role === 'bar' && bid.status !== 'aceptada' && bid.status !== 'rechazada' && !bid.retracted && (
-                              <div className="space-y-2 pt-1 border-t border-slate-800">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {(bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') ? (
-                                    <button
-                                      onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Propuesta aceptada por el bar.')}
-                                      className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
-                                    >
-                                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                      <span>Aceptar Propuesta</span>
-                                    </button>
-                                  ) : (
-                                    <span className="flex-1 py-1.5 px-3 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-semibold rounded-lg text-[11px] flex items-center justify-center gap-1">
-                                      <Clock className="w-3.5 h-3.5" />
-                                      <span>Esperando respuesta del músico</span>
-                                    </span>
-                                  )}
+                            {(() => {
+                              const slotForBid = proposal.slots.find((s) => s.id === bid.slotId);
+                              const hasAcceptedBidInSlot = proposalBids.some(
+                                (b) =>
+                                  b.id !== bid.id &&
+                                  b.slotId === bid.slotId &&
+                                  !b.retracted &&
+                                  b.status === 'aceptada'
+                              );
+                              const canBarNegotiate =
+                                role === 'bar' &&
+                                bid.status !== 'aceptada' &&
+                                bid.status !== 'rechazada' &&
+                                !bid.retracted &&
+                                !hasAcceptedBidInSlot &&
+                                slotForBid?.status !== 'confirmado' &&
+                                proposal.status !== 'publicada' &&
+                                proposal.status !== 'agotada' &&
+                                proposal.status !== 'cancelada';
 
-                                  <button
-                                    onClick={() => {
-                                      setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
-                                      setCounterAmountText(
-                                        bid.proposedCachetARS > 0
-                                          ? String(bid.proposedCachetARS)
-                                          : String(proposal.baseCachetARS || 70000)
-                                      );
-                                      setCounterNote('');
-                                      setNegError(null);
-                                      setCounterInputId(isCounteringThis ? null : bid.id);
-                                    }}
-                                    className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
-                                  >
-                                    {bid.status === 'contraoferta_bar' ? 'Ajustar Contraoferta' : 'Contraproponer'}
-                                  </button>
+                              if (!canBarNegotiate) return null;
 
-                                  <button
-                                    onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Rechazada por el anfitrión.')}
-                                    className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-rose-400 rounded-lg text-xs"
-                                  >
-                                    Rechazar
-                                  </button>
-                                </div>
-
-                                {isCounteringThis && (
-                                  <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
-                                    <div className="flex items-center gap-1.5">
+                              return (
+                                <div className="space-y-2 pt-1 border-t border-slate-800">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {(bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') ? (
                                       <button
-                                        type="button"
-                                        onClick={() => setCounterCachetType('fijo')}
-                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
-                                          counterCachetType === 'fijo'
-                                            ? 'bg-amber-500 text-slate-950 border-amber-500'
-                                            : 'bg-slate-900 text-slate-300 border-slate-700'
-                                        }`}
+                                        onClick={() => {
+                                          const res = respondToSlotBid(
+                                            bid.id,
+                                            'accept',
+                                            bid.proposedCachetARS,
+                                            'Propuesta aceptada por el bar.'
+                                          );
+                                          if (!res.ok) {
+                                            setNegError(res.message || 'No se pudo aceptar la propuesta.');
+                                          } else {
+                                            setNegError(null);
+                                            setCounterInputId(null);
+                                          }
+                                        }}
+                                        className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
                                       >
-                                        Monto Fijo
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                        <span>Aceptar Propuesta</span>
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setCounterCachetType('a_la_gorra')}
-                                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
-                                          counterCachetType === 'a_la_gorra'
-                                            ? 'bg-cyan-500 text-slate-950 border-cyan-500'
-                                            : 'bg-slate-900 text-slate-300 border-slate-700'
-                                        }`}
-                                      >
-                                        🎩 A la gorra
-                                      </button>
-                                    </div>
-
-                                    {counterCachetType === 'fijo' && (
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
-                                        <input
-                                          type="number"
-                                          inputMode="numeric"
-                                          min={1}
-                                          placeholder="Ej: 75000"
-                                          value={counterAmountText}
-                                          onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
-                                          className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
-                                        />
-                                      </div>
+                                    ) : (
+                                      <span className="flex-1 py-1.5 px-3 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-semibold rounded-lg text-[11px] flex items-center justify-center gap-1">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>Esperando respuesta del músico</span>
+                                      </span>
                                     )}
 
-                                    <input
-                                      type="text"
-                                      placeholder="Nota de contrapropuesta..."
-                                      value={counterNote}
-                                      onChange={(e) => setCounterNote(e.target.value)}
-                                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100"
-                                    />
                                     <button
                                       onClick={() => {
-                                        const numericAmount =
-                                          counterCachetType === 'a_la_gorra'
-                                            ? 0
-                                            : counterAmountText === ''
-                                            ? 0
-                                            : Number(counterAmountText);
+                                        setCounterCachetType(bid.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo');
+                                        setCounterAmountText(
+                                          bid.proposedCachetARS > 0
+                                            ? String(bid.proposedCachetARS)
+                                            : String(proposal.baseCachetARS || 70000)
+                                        );
+                                        setCounterNote('');
+                                        setNegError(null);
+                                        setCounterInputId(isCounteringThis ? null : bid.id);
+                                      }}
+                                      className="py-1.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg text-xs"
+                                    >
+                                      {bid.status === 'contraoferta_bar' ? 'Ajustar Contraoferta' : 'Contraproponer'}
+                                    </button>
+
+                                    <button
+                                      onClick={() => {
                                         const res = respondToSlotBid(
                                           bid.id,
-                                          'counter',
-                                          numericAmount,
-                                          counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra.' : 'Contraoferta enviada.'),
-                                          { cachetType: counterCachetType }
+                                          'reject',
+                                          undefined,
+                                          'Rechazada por el anfitrión.'
                                         );
                                         if (!res.ok) {
-                                          setNegError(res.message || 'No se pudo enviar la contraoferta.');
-                                          return;
+                                          setNegError(res.message || 'No se pudo rechazar la propuesta.');
+                                        } else {
+                                          setNegError(null);
+                                          setCounterInputId(null);
                                         }
-                                        setNegError(null);
-                                        setCounterInputId(null);
                                       }}
-                                      className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
+                                      className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-rose-400 rounded-lg text-xs"
                                     >
-                                      Enviar Contraoferta al Músico
+                                      Rechazar
                                     </button>
-                                    {negError && (
-                                      <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
-                                    )}
                                   </div>
-                                )}
-                              </div>
-                            )}
 
-                            {/* Negotiation Actions for Musician */}
-                            {role === 'musico' && bid.status === 'contraoferta_bar' && !bid.retracted && (
+                                  {negError && !isCounteringThis && (
+                                    <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                                  )}
+
+                                  {isCounteringThis && (
+                                    <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-in fade-in">
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => setCounterCachetType('fijo')}
+                                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                            counterCachetType === 'fijo'
+                                              ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                              : 'bg-slate-900 text-slate-300 border-slate-700'
+                                          }`}
+                                        >
+                                          Monto Fijo
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setCounterCachetType('a_la_gorra')}
+                                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                                            counterCachetType === 'a_la_gorra'
+                                              ? 'bg-cyan-500 text-slate-950 border-cyan-500'
+                                              : 'bg-slate-900 text-slate-300 border-slate-700'
+                                          }`}
+                                        >
+                                          🎩 A la gorra
+                                        </button>
+                                      </div>
+
+                                      {counterCachetType === 'fijo' && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <label className="text-[11px] text-slate-400">Nuevo monto caché:</label>
+                                          <input
+                                            type="number"
+                                            inputMode="numeric"
+                                            min={1}
+                                            placeholder="Ej: 75000"
+                                            value={counterAmountText}
+                                            onChange={(e) => setCounterAmountText(sanitizeNumericInput(e.target.value))}
+                                            className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-400 font-bold w-32"
+                                          />
+                                        </div>
+                                      )}
+
+                                      <input
+                                        type="text"
+                                        placeholder="Nota de contrapropuesta..."
+                                        value={counterNote}
+                                        onChange={(e) => setCounterNote(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100"
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          const numericAmount =
+                                            counterCachetType === 'a_la_gorra'
+                                              ? 0
+                                              : counterAmountText === ''
+                                              ? 0
+                                              : Number(counterAmountText);
+                                          const res = respondToSlotBid(
+                                            bid.id,
+                                            'counter',
+                                            numericAmount,
+                                            counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra.' : 'Contraoferta enviada.'),
+                                            { cachetType: counterCachetType }
+                                          );
+                                          if (!res.ok) {
+                                            setNegError(res.message || 'No se pudo enviar la contraoferta.');
+                                            return;
+                                          }
+                                          setNegError(null);
+                                          setCounterInputId(null);
+                                        }}
+                                        className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
+                                      >
+                                        Enviar Contraoferta al Músico
+                                      </button>
+                                      {negError && (
+                                        <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Musician Turn Indicator & Negotiation Actions */}
+                            {role === 'musico' &&
+                              (bid.status === 'pendiente_bar' || bid.status === 'contraoferta_musico') &&
+                              !bid.retracted &&
+                              !isEventClosedForNeg && (
+                                <div className="pt-1 border-t border-slate-800">
+                                  <span className="w-full py-1.5 px-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold rounded-lg text-[11px] flex items-center gap-1.5">
+                                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                                    <span>
+                                      Esperando respuesta del bar • Podés enviar recordatorio o retractarte en Mis Postulaciones
+                                    </span>
+                                  </span>
+                                </div>
+                              )}
+
+                            {role === 'musico' &&
+                              bid.status === 'contraoferta_bar' &&
+                              !bid.retracted &&
+                              !hasAcceptedOtherInSlot &&
+                              bidSlot?.status !== 'confirmado' &&
+                              !isEventClosedForNeg && (
                               <div className="space-y-2 pt-1 border-t border-slate-800">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <button
-                                    onClick={() => respondToSlotBid(bid.id, 'accept', bid.proposedCachetARS, 'Músico acepta contraoferta.')}
+                                    onClick={() => {
+                                      const res = respondToSlotBid(
+                                        bid.id,
+                                        'accept',
+                                        bid.proposedCachetARS,
+                                        'Músico acepta contraoferta.'
+                                      );
+                                      if (!res.ok) {
+                                        setNegError(res.message || 'No se pudo aceptar la contraoferta.');
+                                      } else {
+                                        setNegError(null);
+                                        setCounterInputId(null);
+                                      }
+                                    }}
                                     className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center justify-center gap-1"
                                   >
                                     <Check className="w-3.5 h-3.5 stroke-[3]" />
@@ -809,12 +981,29 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     Contraproponer
                                   </button>
                                   <button
-                                    onClick={() => respondToSlotBid(bid.id, 'reject', undefined, 'Músico no acepta contraoferta.')}
+                                    onClick={() => {
+                                      const res = respondToSlotBid(
+                                        bid.id,
+                                        'reject',
+                                        undefined,
+                                        'Músico no acepta contraoferta.'
+                                      );
+                                      if (!res.ok) {
+                                        setNegError(res.message || 'No se pudo rechazar la contraoferta.');
+                                      } else {
+                                        setNegError(null);
+                                        setCounterInputId(null);
+                                      }
+                                    }}
                                     className="py-1.5 px-2.5 bg-slate-800 text-rose-400 rounded-lg text-xs"
                                   >
                                     Rechazar
                                   </button>
                                 </div>
+
+                                {negError && !isCounteringThis && (
+                                  <p className="text-[11px] text-rose-400 font-semibold">{negError}</p>
+                                )}
 
                                 {isCounteringThis && (
                                   <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2.5 animate-in fade-in">
