@@ -291,7 +291,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </span>
 
             {/* Quick utility buttons: Instalar, Compartir and Feedback */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0">
               {!isInstalled && (
                 <button
                   type="button"
@@ -950,7 +950,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </div>
 
             {/* Don't show tour again checkbox */}
-            <label className="flex items-center gap-2.5 cursor-pointer text-xs text-slate-300 px-1 select-none">
+            <label className="flex items-center gap-2.5 cursor-pointer text-xs text-slate-200 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-amber-500/40 transition-colors select-none">
               <input
                 type="checkbox"
                 data-testid="tour-hide-checkbox"
@@ -960,9 +960,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   setHideTour(checked);
                   setHideTourPreference(checked);
                 }}
-                className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900 accent-amber-500"
+                className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900 accent-amber-500 shrink-0"
               />
-              <span className="font-medium text-slate-300">
+              <span className="font-semibold text-slate-200">
                 No volver a mostrar este tour al ingresar
               </span>
             </label>
