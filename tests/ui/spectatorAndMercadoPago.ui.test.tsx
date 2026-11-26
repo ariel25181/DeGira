@@ -6,6 +6,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { AppProvider } from '../../src/context/AppContext.tsx';
 import { SessionProvider } from '../../src/context/SessionContext.tsx';
 import { ProfileView } from '../../src/components/ProfileView.tsx';
+import { CatalogView } from '../../src/components/CatalogView.tsx';
 import { ShowDetailModal } from '../../src/components/modals/ShowDetailModal.tsx';
 import type { LiveShowConfirmed } from '../../src/types/index.ts';
 
@@ -155,5 +156,79 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
       fireEvent.click(logoutButtons[0]);
     });
     assert.strictEqual(signedOut, true);
+  });
+
+  it('CatalogView shows each confirmed musician exact set time on Cartelera card and reservation modal', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'espectador');
+    localStorage.setItem(
+      'suena_ba_v3_eventProposals',
+      JSON.stringify([
+        {
+          id: 'ev-clappers',
+          eventCode: 'DG-BAR2-4317',
+          venueId: 'venue-2',
+          venueName: 'Bar Test 2',
+          venueAddress: 'Defensa 850',
+          venueNeighborhood: 'San Telmo',
+          venuePhoto: 'https://example.com/bar2.jpg',
+          title: 'Clappers Party',
+          date: '2026-11-28',
+          startTime: '20:30',
+          endTime: '01:00',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 70000,
+          targetGenres: ['Rock'],
+          rider: { stageSize: '6x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'publicada',
+          slots: [
+            {
+              id: 'slot-clappers-1',
+              startTime: '21:00',
+              endTime: '22:15',
+              requiredMusicians: 2,
+              status: 'confirmado',
+              assignedMusicianId: 'mus-2',
+              assignedMusicianName: 'Músico Test 2',
+              agreedCachetARS: 70000,
+            },
+            {
+              id: 'slot-clappers-2',
+              startTime: '22:45',
+              endTime: '00:15',
+              requiredMusicians: 3,
+              status: 'confirmado',
+              assignedMusicianId: 'mus-1',
+              assignedMusicianName: 'Músico Test 1',
+              agreedCachetARS: 70000,
+            },
+          ],
+          createdAt: '2026-11-01',
+        },
+      ])
+    );
+
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <AppProvider>
+            <CatalogView onViewVenue={() => {}} onViewMusician={() => {}} />
+          </AppProvider>
+        </SessionProvider>
+      );
+    });
+
+    const lineup = screen.getByTestId('catalog-event-lineup');
+    assert.ok(lineup.textContent?.includes('Toca: Músico Test 2'));
+    assert.ok(lineup.textContent?.includes('21:00 a 22:15 hs'));
+    assert.ok(lineup.textContent?.includes('Toca: Músico Test 1'));
+    assert.ok(lineup.textContent?.includes('22:45 a 00:15 hs'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Reservar Lugar/i }));
+    });
+    assert.ok(screen.getByText('Músico Test 2 (21:00 a 22:15 hs)'));
+    assert.ok(screen.getByText('Músico Test 1 (22:45 a 00:15 hs)'));
   });
 });

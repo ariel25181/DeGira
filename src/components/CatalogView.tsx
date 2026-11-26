@@ -15,10 +15,11 @@ import {
   CheckCircle,
   X,
   ExternalLink,
+  Music,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { LiveShowConfirmed, EventProposal, MusicGenre } from '../types/index.ts';
-import { formatARS, formatDateBA } from '../utils/bookingLogic.ts';
+import { formatARS, formatDateBA, getConfirmedSlotLineup } from '../utils/bookingLogic.ts';
 
 interface CatalogViewProps {
   onSelectShow?: (show: LiveShowConfirmed) => void;
@@ -100,7 +101,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
         ev.title.toLowerCase().includes(q) ||
         ev.venueName.toLowerCase().includes(q) ||
         ev.venueNeighborhood.toLowerCase().includes(q) ||
-        ev.targetGenres.some((g) => g.toLowerCase().includes(q));
+        ev.targetGenres.some((g) => g.toLowerCase().includes(q)) ||
+        ev.slots.some((s) => s.assignedMusicianName?.toLowerCase().includes(q));
       if (!match) return false;
     }
     return true;
@@ -235,10 +237,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
         ) : (
           publicEvents.map((event) => {
             const isAgotada = event.status === 'agotada' || event.remainingCapacity <= 0;
-            const confirmedMusicians = event.slots
-              .filter((s) => s.assignedMusicianName)
-              .map((s) => s.assignedMusicianName)
-              .join(' & ');
+            const slotLineup = getConfirmedSlotLineup(event.slots);
 
             return (
               <div
@@ -296,17 +295,33 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     <h3 className="text-lg font-bold text-slate-100 font-display group-hover:text-amber-400 transition-colors">
                       {event.title}
                     </h3>
-                    <p className="text-xs text-slate-400 flex items-center space-x-1.5 mt-0.5">
-                      <span className="text-amber-400 font-medium">
-                        {event.targetGenres.join(', ')}
-                      </span>
-                      {confirmedMusicians && (
-                        <>
-                          <span>•</span>
-                          <span className="text-slate-200 font-semibold">Toca: {confirmedMusicians}</span>
-                        </>
-                      )}
+                    <p className="text-xs text-amber-400 font-medium mt-0.5">
+                      {event.targetGenres.join(', ')}
                     </p>
+                    {slotLineup.length > 0 && (
+                      <div
+                        data-testid="catalog-event-lineup"
+                        className="mt-2 space-y-1 rounded-xl bg-slate-950/60 border border-slate-800/80 px-2.5 py-2"
+                      >
+                        {slotLineup.map((item) => (
+                          <div
+                            key={item.slotId}
+                            className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs"
+                          >
+                            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-100">
+                              <Music className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>Toca: {item.musicianName}</span>
+                            </span>
+                            {item.timeRangeLabel && (
+                              <span className="inline-flex items-center gap-1 text-amber-300 font-bold text-[11px]">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                <span>{item.timeRangeLabel}</span>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {event.venueAddress && (
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1">
                         <span>{event.venueAddress}</span>
@@ -460,9 +475,21 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       <strong className="text-slate-200">{reservingEvent.title}</strong>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Fecha y Hora:</span>
-                      <span className="text-slate-200">{formatDateBA(reservingEvent.date)} • {reservingEvent.startTime} hs</span>
+                      <span className="text-slate-400">Horario del Bar:</span>
+                      <span className="text-slate-200">{formatDateBA(reservingEvent.date)} • {reservingEvent.startTime} a {reservingEvent.endTime} hs</span>
                     </div>
+                    {getConfirmedSlotLineup(reservingEvent.slots).length > 0 && (
+                      <div className="flex justify-between items-start gap-2 pt-0.5">
+                        <span className="text-slate-400 shrink-0">Bandas y horarios:</span>
+                        <div className="text-right space-y-0.5">
+                          {getConfirmedSlotLineup(reservingEvent.slots).map((item) => (
+                            <div key={item.slotId} className="text-amber-300 font-semibold">
+                              {item.displayLabel}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-slate-400">Disponibilidad restante:</span>
                       <span className="text-emerald-400 font-bold">{reservingEvent.remainingCapacity} lugares</span>
@@ -683,10 +710,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       </p>
                     ) : (
                       last10Events.map((ev, idx) => {
-                        const musiciansInEv = ev.slots
-                          .map((s) => s.assignedMusicianName)
-                          .filter(Boolean)
-                          .join(', ');
+                        const musiciansInEv = getConfirmedSlotLineup(ev.slots)
+                          .map((i) => i.displayLabel)
+                          .join(' · ');
 
                         return (
                           <div

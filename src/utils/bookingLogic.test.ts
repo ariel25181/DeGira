@@ -9,8 +9,9 @@ import {
   filterOpenCalls,
   filterMusicianAvailabilities,
   sanitizeNumericInput,
+  getConfirmedSlotLineup,
 } from './bookingLogic.ts';
-import type { VenueOpenCall, MusicianAvailability } from '../types/index.ts';
+import type { VenueOpenCall, MusicianAvailability, EventSlot } from '../types/index.ts';
 
 test('calculateNewRating correctly computes cumulative weighted average', () => {
   // If current rating is 5.0 with 1 review, and new review is 4.0: (5 + 4) / 2 = 4.5
@@ -145,3 +146,42 @@ test('filterMusicianAvailabilities filters by genre and search', () => {
   const emptyResults = filterMusicianAvailabilities(dummyAvails, { query: 'Rock pesado' });
   assert.equal(emptyResults.length, 0);
 });
+
+test('getConfirmedSlotLineup returns each confirmed musician paired with their exact slot time range', () => {
+  const slots: EventSlot[] = [
+    {
+      id: 'slot-1',
+      startTime: '21:00',
+      endTime: '22:15',
+      requiredMusicians: 2,
+      status: 'confirmado',
+      assignedMusicianId: 'mus-2',
+      assignedMusicianName: 'Músico Test 2',
+    },
+    {
+      id: 'slot-2',
+      startTime: '22:45',
+      endTime: '00:15',
+      requiredMusicians: 3,
+      status: 'libre',
+    },
+    {
+      id: 'slot-3',
+      startTime: '00:30',
+      endTime: '01:30',
+      requiredMusicians: 1,
+      status: 'confirmado',
+      assignedMusicianId: 'mus-1',
+      assignedMusicianName: 'Músico Test 1',
+    },
+  ];
+
+  const lineup = getConfirmedSlotLineup(slots);
+  assert.equal(lineup.length, 2);
+  assert.equal(lineup[0].musicianName, 'Músico Test 2');
+  assert.equal(lineup[0].timeRangeLabel, '21:00 a 22:15 hs');
+  assert.equal(lineup[0].displayLabel, 'Músico Test 2 (21:00 a 22:15 hs)');
+  assert.equal(lineup[1].musicianName, 'Músico Test 1');
+  assert.equal(lineup[1].timeRangeLabel, '00:30 a 01:30 hs');
+});
+

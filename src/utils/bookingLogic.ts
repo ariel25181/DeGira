@@ -6,6 +6,7 @@ import type {
   MusicGenre,
   NeighborhoodBA,
   CachetMode,
+  EventSlot,
 } from '../types/index.ts';
 
 /**
@@ -236,3 +237,44 @@ export function filterCatalogShows(
     return true;
   });
 }
+
+export interface ConfirmedSlotLineupEntry {
+  slotId: string;
+  musicianId?: string;
+  musicianName: string;
+  startTime: string;
+  endTime: string;
+  timeRangeLabel: string;
+  displayLabel: string;
+}
+
+/**
+ * Extracts confirmed musician lineup entries paired with their individual slot set times.
+ */
+export function getConfirmedSlotLineup(slots: EventSlot[] = []): ConfirmedSlotLineupEntry[] {
+  return slots
+    .filter((s) => Boolean(s.assignedMusicianName && s.assignedMusicianName.trim()))
+    .map((s) => {
+      const musicianName = s.assignedMusicianName!.trim();
+      const startTime = (s.startTime || '').trim();
+      const endTime = (s.endTime || '').trim();
+      const timeRangeLabel =
+        startTime && endTime
+          ? `${startTime} a ${endTime} hs`
+          : startTime
+          ? `${startTime} hs`
+          : '';
+      const displayLabel = timeRangeLabel ? `${musicianName} (${timeRangeLabel})` : musicianName;
+
+      return {
+        slotId: s.id,
+        musicianId: s.assignedMusicianId,
+        musicianName,
+        startTime,
+        endTime,
+        timeRangeLabel,
+        displayLabel,
+      };
+    });
+}
+
