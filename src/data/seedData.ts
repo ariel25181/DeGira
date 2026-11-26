@@ -12,6 +12,7 @@ import {
 export const INITIAL_VENUES: VenueProfile[] = [
   {
     id: 'venue-1',
+    ownerBarId: 'venue-1',
     name: 'Bar Test 1',
     type: 'Club de Jazz',
     address: 'Honduras 4800',
@@ -69,6 +70,7 @@ export const INITIAL_VENUES: VenueProfile[] = [
   },
   {
     id: 'venue-2',
+    ownerBarId: 'venue-2',
     name: 'Bar Test 2',
     type: 'Cervecería',
     address: 'Defensa 850',

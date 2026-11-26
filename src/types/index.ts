@@ -65,6 +65,7 @@ export interface VenueProfile {
     respect: number;
   };
   venueCbuAlias?: string;
+  ownerBarId?: string;
   defaultRiderTemplate?: EventRider;
   reviews: Review[];
 }

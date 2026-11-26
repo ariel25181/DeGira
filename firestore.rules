@@ -53,7 +53,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'name', 'type', 'address', 'neighborhood', 'coverPhoto', 'photos',
           'bio', 'capacity', 'backline', 'acousticCharacteristics', 'hospitality',
-          'rating', 'reviewCount', 'ratingBreakdown', 'venueCbuAlias', 'defaultRiderTemplate',
+          'rating', 'reviewCount', 'ratingBreakdown', 'venueCbuAlias', 'ownerBarId', 'defaultRiderTemplate',
           'visibility', 'ownerUid', 'createdAtTimestamp', 'updatedAtTimestamp'
         ])
         && isValidId(data.id)
@@ -72,6 +72,7 @@ service cloud.firestore {
         && (!('reviewCount' in data) || (data.reviewCount is number && data.reviewCount >= 0))
         && (!('ratingBreakdown' in data) || data.ratingBreakdown is map)
         && isOptionalBoundedString(data, 'venueCbuAlias', 120)
+        && (!('ownerBarId' in data) || isValidId(data.ownerBarId))
         && (!('defaultRiderTemplate' in data) || data.defaultRiderTemplate is map)
         && data.visibility == 'public'
         && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128

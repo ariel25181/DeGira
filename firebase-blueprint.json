@@ -21,6 +21,7 @@
         "reviewCount": { "type": "number" },
         "ratingBreakdown": { "type": "object" },
         "venueCbuAlias": { "type": "string", "maxLength": 120 },
+        "ownerBarId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "defaultRiderTemplate": { "type": "object" },
         "visibility": { "type": "string", "enum": ["public"] },
         "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },

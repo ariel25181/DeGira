@@ -63,6 +63,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     role,
     setRole,
     venues,
+    ownedVenues,
     musicians,
     publicUsers,
     activePublicUserId,
@@ -1101,9 +1102,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     isVenue = role === 'bar';
   }
 
-  // Pending & recently confirmed payment receipts for the bar
-  const pendingReceipts = publicEventReservations.filter((r) => r.status === 'comprobante_subido');
-  const confirmedReceipts = publicEventReservations.filter((r) => r.status === 'confirmada');
+  const barOwnedVenues = ownedVenues && ownedVenues.length > 0 ? ownedVenues : venues;
+  const ownedVenueIds = new Set(barOwnedVenues.map((v) => v.id));
+
+  // Pending & recently confirmed payment receipts scoped to the bar's owned venues
+  const pendingReceipts = publicEventReservations.filter(
+    (r) => r.status === 'comprobante_subido' && (!r.venueId || ownedVenueIds.has(r.venueId))
+  );
+  const confirmedReceipts = publicEventReservations.filter(
+    (r) => r.status === 'confirmada' && (!r.venueId || ownedVenueIds.has(r.venueId))
+  );
 
   return (
     <div className="space-y-5 pb-24 animate-in fade-in duration-200">
@@ -1143,7 +1151,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
 
         <div className="p-5 space-y-4">
-          {!viewingTarget && isVenue && venues.length > 1 && (
+          {!viewingTarget && isVenue && barOwnedVenues.length > 1 && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
               <label
                 htmlFor="profile-venue-switcher"
@@ -1154,11 +1162,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <select
                 id="profile-venue-switcher"
                 data-testid="profile-venue-switcher"
-                value={venueProfile?.id || venues[0]?.id || ''}
+                value={venueProfile?.id || barOwnedVenues[0]?.id || ''}
                 onChange={(e) => setActiveVenueId(e.target.value)}
                 className="w-full sm:w-auto flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-100 focus:border-amber-500 outline-none"
               >
-                {venues.map((v) => (
+                {barOwnedVenues.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name} ({v.neighborhood})
                   </option>
@@ -1704,9 +1712,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             {(() => {
-              const targetVenueId = venueProfile?.id || 'venue-1';
-              const venueEvents = eventProposals.filter(
-                (p) => p.venueId === targetVenueId || venues.some((v) => v.id === p.venueId)
+              const targetVenueId = venueProfile?.id || currentVenue?.id || 'venue-1';
+              const venueEvents = eventProposals.filter((p) =>
+                viewingTarget ? p.venueId === targetVenueId : ownedVenueIds.has(p.venueId)
               );
               const totalGross = venueEvents.reduce((acc, p) => {
                 const confirmed = publicEventReservations.filter(
@@ -1743,7 +1751,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           {/* List of events */}
           <div className="space-y-3">
             {eventProposals
-              .filter((p) => p.venueId === (venueProfile?.id || 'venue-1') || venues.some((v) => v.id === p.venueId))
+              .filter((p) =>
+                viewingTarget
+                  ? p.venueId === (venueProfile?.id || 'venue-1')
+                  : ownedVenueIds.has(p.venueId)
+              )
               .map((p) => {
                 const confirmed = publicEventReservations.filter(
                   (r) => r.eventId === p.id && r.status === 'confirmada'

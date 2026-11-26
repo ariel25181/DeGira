@@ -38,9 +38,10 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
   isOpen,
   onClose,
 }) => {
-  const { currentVenue, venues, createEventProposal, saveVenueRiderTemplate, addNewVenue } = useApp();
+  const { currentVenue, venues, ownedVenues, createEventProposal, saveVenueRiderTemplate, addNewVenue } = useApp();
+  const barOwnedVenues = ownedVenues && ownedVenues.length > 0 ? ownedVenues : venues;
 
-  const [selectedVenueId, setSelectedVenueId] = useState<string>(currentVenue?.id || 'venue-1');
+  const [selectedVenueId, setSelectedVenueId] = useState<string>(currentVenue?.id || barOwnedVenues[0]?.id || 'venue-1');
   const [isCreatingNewVenue, setIsCreatingNewVenue] = useState(false);
   const [newVenueName, setNewVenueName] = useState('');
   const [newVenueAddress, setNewVenueAddress] = useState('');
@@ -156,7 +157,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       lighting,
     };
 
-    let activeVenue = venues.find((v) => v.id === selectedVenueId) || currentVenue || venues[0];
+    let activeVenue = barOwnedVenues.find((v) => v.id === selectedVenueId) || currentVenue || barOwnedVenues[0];
 
     if (isCreatingNewVenue && newVenueName.trim()) {
       activeVenue = addNewVenue({
@@ -270,7 +271,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
                   onChange={(e) => setSelectedVenueId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-xs focus:border-amber-500 outline-none"
                 >
-                  {venues.map((v) => (
+                  {barOwnedVenues.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name} ({v.neighborhood} - Cap: {v.capacity})
                     </option>

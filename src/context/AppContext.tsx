@@ -108,6 +108,12 @@ import {
   resolveActiveProfileIdentity,
   isNotificationVisibleToProfile,
 } from '../utils/notificationScoping.ts';
+import {
+  getVenuesOwnedByBar,
+  normalizeCloudVenue,
+  normalizeCloudEventProposal,
+  resolveBarOwnerId,
+} from '../utils/venueOwnership.ts';
 
 export interface NotificationItem {
   id: string;
@@ -128,10 +134,12 @@ interface AppContextType {
   setActiveMusicianId: (id: string) => void;
   activeVenueId: string;
   setActiveVenueId: (id: string) => void;
+  activeBarAccountId: string;
   activePublicUserId: string;
   setActivePublicUserId: (id: string) => void;
 
   venues: VenueProfile[];
+  ownedVenues: VenueProfile[];
   musicians: MusicianProfile[];
   publicUsers: PublicUserProfile[];
   openCalls: VenueOpenCall[];
@@ -265,6 +273,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return localStorage.getItem(`${STORAGE_KEY_PREFIX}activeVenueId`) || 'venue-1';
   });
 
+  const [activeBarAccountId, setActiveBarAccountId] = useState<string>(() => {
+    const savedOwner = localStorage.getItem(`${STORAGE_KEY_PREFIX}activeBarAccountId`);
+    if (savedOwner) return savedOwner;
+    const savedVenue = localStorage.getItem(`${STORAGE_KEY_PREFIX}activeVenueId`);
+    return savedVenue === 'venue-2' ? 'venue-2' : 'venue-1';
+  });
+
   const [activePublicUserId, setActivePublicUserId] = useState<string>(() => {
     return localStorage.getItem(`${STORAGE_KEY_PREFIX}activePublicUserId`) || 'user-pub-1';
   });
@@ -361,10 +376,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Entidades principales de la nueva arquitectura DeGira
   const [eventProposals, setEventProposals] = useState<EventProposal[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}eventProposals`);
-    if (saved && !hasLegacyString(saved)) {
+    if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.map((ev: EventProposal) => normalizeCloudEventProposal(ev));
+        }
       } catch {}
     }
     return INITIAL_EVENT_PROPOSALS;
@@ -528,12 +545,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             unsubCloud = subscribeToCloudState({
               uid: user.uid,
               onVenues: (cloudVenues) => {
-                setVenues((prev) => mergeByIdWithCloudPriority(prev, cloudVenues));
+                const normalizedCloud = cloudVenues.map(normalizeCloudVenue);
+                setVenues((prev) => mergeByIdWithCloudPriority(prev, normalizedCloud));
               },
               onEventProposals: (cloudEvents) => {
+                const normalizedCloud = cloudEvents.map(normalizeCloudEventProposal);
                 const nextEvents = mergeEventProposalsMonotonic(
                   eventProposalsRef.current,
-                  cloudEvents,
+                  normalizedCloud,
                   slotBidsRef.current
                 );
                 eventProposalsRef.current = nextEvents;
@@ -644,6 +663,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [activeVenueId]);
 
   useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}activeBarAccountId`, activeBarAccountId);
+  }, [activeBarAccountId]);
+
+  useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}activePublicUserId`, activePublicUserId);
   }, [activePublicUserId]);
 
@@ -727,9 +750,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncWithSupabase();
   }, []);
 
+  const resolvedBarOwnerId = resolveBarOwnerId({
+    activeBarAccountId,
+    activeVenueId,
+    venues,
+  });
+  const ownedVenues = getVenuesOwnedByBar({
+    venues,
+    barOwnerId: resolvedBarOwnerId,
+  });
+
   const currentMusician = musicians.find((m) => m.id === activeMusicianId) || musicians[0];
-  const currentVenue = venues.find((v) => v.id === activeVenueId) || venues[0];
+  const currentVenue =
+    ownedVenues.find((v) => v.id === activeVenueId) ||
+    ownedVenues[0] ||
+    venues.find((v) => v.id === activeVenueId) ||
+    venues[0];
   const currentPublicUser = publicUsers.find((u) => u.id === activePublicUserId) || publicUsers[0];
+
+  const selectActiveVenueId = (id: string) => {
+    setActiveVenueId(id);
+    const targetVenue = venues.find((v) => v.id === id);
+    const targetOwner =
+      targetVenue?.ownerBarId || (id === 'venue-2' ? 'venue-2' : id === 'venue-1' ? 'venue-1' : undefined);
+    if (targetOwner && targetOwner !== activeBarAccountId) {
+      setActiveBarAccountId(targetOwner);
+    }
+  };
 
   const userDisplayName = storedUserName || (
     role === 'espectador'
@@ -1959,6 +2006,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newVenue: VenueProfile = {
       ...venueData,
       id: `venue-${Date.now()}`,
+      ownerBarId: venueData.ownerBarId || resolvedBarOwnerId,
       rating: 5.0,
       reviewCount: 0,
       reviews: [],
@@ -2494,6 +2542,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRole('espectador');
     setActiveMusicianId('mus-1');
     setActiveVenueId('venue-1');
+    setActiveBarAccountId('venue-1');
     setActivePublicUserId('user-pub-1');
     setVenues(INITIAL_VENUES);
     setMusicians(INITIAL_MUSICIANS);
@@ -2525,6 +2574,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRole(account.role);
     setUserDisplayName(account.displayName);
     if (account.role === 'bar') {
+      setActiveBarAccountId(account.entityId);
       setActiveVenueId(account.entityId);
     } else if (account.role === 'musico') {
       setActiveMusicianId(account.entityId);
@@ -2758,10 +2808,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeMusicianId,
         setActiveMusicianId,
         activeVenueId,
-        setActiveVenueId,
+        setActiveVenueId: selectActiveVenueId,
+        activeBarAccountId: resolvedBarOwnerId,
         activePublicUserId,
         setActivePublicUserId,
         venues,
+        ownedVenues,
         musicians,
         publicUsers,
         openCalls,

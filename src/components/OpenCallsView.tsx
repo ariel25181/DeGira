@@ -52,6 +52,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     role,
     setRole,
     venues,
+    ownedVenues,
     currentVenue,
     setActiveVenueId,
     currentMusician,
@@ -77,8 +78,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   // Expandable proposal details
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
 
-  // Status filter for bar
+  // Status filter for bar & musician
   const [barStatusFilter, setBarStatusFilter] = useState<'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada'>('todos');
+  const [musicianStatusFilter, setMusicianStatusFilter] = useState<'abiertas' | 'cerradas'>('abiertas');
 
   useEffect(() => {
     setCounterInputId(null);
@@ -89,19 +91,50 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     setBiddingSlot(null);
   }, [role, currentVenue?.id, currentMusician?.id]);
 
+  const musicianOpenProposals =
+    role === 'musico'
+      ? eventProposals.filter((p) =>
+          isEventVisibleInConvocatorias({
+            proposal: p,
+            role: 'musico',
+            slotBids,
+            musicianId: currentMusician?.id,
+          })
+        )
+      : [];
+
+  const musicianClosedProposals =
+    role === 'musico'
+      ? eventProposals.filter(
+          (p) =>
+            (p.status === 'publicada' || p.status === 'agotada' || p.status === 'para_publicar') &&
+            !isEventVisibleInConvocatorias({
+              proposal: p,
+              role: 'musico',
+              slotBids,
+              musicianId: currentMusician?.id,
+            })
+        )
+      : [];
+
   // Visibilidad estricta por rol y bar activo:
   // - Bar: únicamente sus propias fechas (currentVenue.id) según filtro
-  // - Músico: propuestas y fechas 'para_publicar' que aún tienen horarios libres o donde tiene propuesta activa
-  const visibleProposals = eventProposals.filter((p) =>
-    isEventVisibleInConvocatorias({
-      proposal: p,
-      role,
-      barStatusFilter,
-      slotBids,
-      musicianId: currentMusician?.id,
-      viewerVenueId: role === 'bar' ? currentVenue?.id : undefined,
-    })
-  );
+  // - Músico: propuestas abiertas ('abiertas') o ya cerradas/publicadas ('cerradas')
+  const visibleProposals =
+    role === 'musico'
+      ? musicianStatusFilter === 'abiertas'
+        ? musicianOpenProposals
+        : musicianClosedProposals
+      : eventProposals.filter((p) =>
+          isEventVisibleInConvocatorias({
+            proposal: p,
+            role,
+            barStatusFilter,
+            slotBids,
+            musicianId: currentMusician?.id,
+            viewerVenueId: role === 'bar' ? currentVenue?.id : undefined,
+          })
+        );
 
   const barScopedEvents =
     role === 'bar'
@@ -120,7 +153,8 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   eventProposals.forEach((ev) => {
     venueEventCounts.set(ev.venueId, (venueEventCounts.get(ev.venueId) || 0) + 1);
   });
-  const otherVenuesWithEvents = venues.filter(
+  const barLocalVenues = ownedVenues && ownedVenues.length > 0 ? ownedVenues : venues;
+  const otherVenuesWithEvents = barLocalVenues.filter(
     (v) => v.id !== currentVenue?.id && (venueEventCounts.get(v.id) || 0) > 0
   );
   const otherVenuesEventsCount = otherVenuesWithEvents.reduce(
@@ -173,7 +207,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
           <div className="pt-2 space-y-2.5">
             {role === 'bar' ? (
               <>
-                {venues.length > 1 && (
+                {barLocalVenues.length > 1 && (
                   <div className="space-y-1">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
                       <label
@@ -189,7 +223,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                         onChange={(e) => setActiveVenueId(e.target.value)}
                         className="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-950/90 border border-slate-700 text-xs font-bold text-slate-100 focus:border-amber-500 outline-none"
                       >
-                        {venues.map((v) => {
+                        {barLocalVenues.map((v) => {
                           const count = venueEventCounts.get(v.id) || 0;
                           return (
                             <option key={v.id} value={v.id}>
@@ -271,6 +305,36 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
         </div>
       )}
 
+      {/* Musician Status Tabs */}
+      {role === 'musico' && (
+        <div className="flex flex-wrap gap-2 pb-1 text-xs font-bold">
+          <button
+            type="button"
+            data-testid="musician-calls-open-tab"
+            onClick={() => setMusicianStatusFilter('abiertas')}
+            className={`px-3 py-1.5 rounded-xl border whitespace-nowrap transition-all ${
+              musicianStatusFilter === 'abiertas'
+                ? 'bg-amber-500 text-slate-950 border-amber-500 font-black'
+                : 'bg-slate-900 text-slate-300 border-slate-800'
+            }`}
+          >
+            Abiertas ({musicianOpenProposals.length})
+          </button>
+          <button
+            type="button"
+            data-testid="musician-calls-closed-tab"
+            onClick={() => setMusicianStatusFilter('cerradas')}
+            className={`px-3 py-1.5 rounded-xl border whitespace-nowrap transition-all ${
+              musicianStatusFilter === 'cerradas'
+                ? 'bg-amber-500 text-slate-950 border-amber-500 font-black'
+                : 'bg-slate-900 text-slate-300 border-slate-800'
+            }`}
+          >
+            Publicadas / Completas ({musicianClosedProposals.length})
+          </button>
+        </div>
+      )}
+
       {/* Proposals List */}
       <div className="space-y-4">
         {visibleProposals.length === 0 ? (
@@ -278,7 +342,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
             <p className="text-slate-300 font-medium">No hay propuestas en este estado.</p>
             <p className="text-xs text-slate-500">
               {role === 'musico'
-                ? 'Las propuestas acordadas pasan a estado publicado y van a la Cartelera.'
+                ? musicianStatusFilter === 'abiertas'
+                  ? 'Las convocatorias con horarios ya acordados o publicadas pasan a "Publicadas / Completas" y a Cartelera.'
+                  : 'Todavía no hay fechas publicadas o con todos sus horarios cerrados.'
                 : barStatusCounts.todos > 0 && barStatusFilter !== 'todos'
                 ? `Este local tiene ${barStatusCounts.todos} ${barStatusCounts.todos === 1 ? 'evento activo' : 'eventos activos'} en otros estados (Para Publicar / Publicadas).`
                 : 'Creá una nueva propuesta con el botón superior.'}
@@ -320,8 +386,8 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
               >
                 {/* Header */}
                 <div className="p-4 sm:p-5 space-y-3">
-                  <div className="flex items-start justify-between gap-2 sm:gap-3">
-                    <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <div className="flex flex-col-reverse sm:flex-row sm:items-start sm:justify-between gap-2.5 sm:gap-3">
+                    <div className="flex items-start space-x-3 min-w-0 flex-1 w-full">
                       <img
                         src={proposal.venuePhoto}
                         alt={proposal.venueName}
@@ -331,7 +397,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                       <div className="min-w-0 flex-1">
                         <h3
                           onClick={() => onViewVenue(proposal.venueId)}
-                          className="font-bold text-slate-100 text-base font-display hover:text-amber-400 cursor-pointer break-words"
+                          className="font-bold text-slate-100 text-base font-display hover:text-amber-400 cursor-pointer break-words leading-snug"
                         >
                           {proposal.title}
                         </h3>
@@ -361,9 +427,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     </div>
 
                     {/* Status Badge */}
-                    <div className="shrink-0">
+                    <div className="shrink-0 self-start">
                       <span
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-black uppercase border ${
+                        className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-black uppercase border ${
                           proposal.status === 'publicada'
                             ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
                             : proposal.status === 'para_publicar'
@@ -497,10 +563,10 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 </div>
                               ) : (
                                 <div className="text-slate-400 text-[11px] mt-0.5">
-                                  {role === 'bar'
-                                    ? proposal.status === 'publicada' || proposal.status === 'agotada' || proposal.status === 'cancelada'
-                                      ? 'Horario sin músico asignado (evento cerrado en cartelera)'
-                                      : 'Horario libre • Esperando postulaciones de músicos'
+                                  {proposal.status === 'publicada' || proposal.status === 'agotada' || proposal.status === 'cancelada'
+                                    ? 'Horario sin músico asignado (convocatoria cerrada en cartelera)'
+                                    : role === 'bar'
+                                    ? 'Horario libre • Esperando postulaciones de músicos'
                                     : slotState.wasPreviouslyRejectedForViewer
                                     ? 'Disponible para postular • Horario liberado tras propuesta anterior rechazada'
                                     : 'Disponible para postular'}
