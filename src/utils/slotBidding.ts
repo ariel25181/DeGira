@@ -74,11 +74,15 @@ export function detectMusicianDateClashes(params: {
 }): DetectedClash[] {
   const { musicianId, targetEvent, targetSlot, slotBids, eventProposals, liveShows = [] } = params;
   const clashes: DetectedClash[] = [];
+  const seenEventSlots = new Set<string>();
 
   for (const otherBid of slotBids) {
     if (otherBid.musicianId !== musicianId || !isActiveSlotBid(otherBid)) continue;
     const otherEv = eventProposals.find((e) => e.id === otherBid.eventId);
-    if (!otherEv || otherEv.date !== targetEvent.date) continue;
+    if (!otherEv || otherEv.status === 'cancelada' || otherEv.date !== targetEvent.date) continue;
+    if ((otherEv.status === 'publicada' || otherEv.status === 'agotada') && otherBid.status !== 'aceptada') {
+      continue;
+    }
     const otherSlot = otherEv.slots.find((s) => s.id === otherBid.slotId);
     if (!otherSlot) continue;
     if (otherEv.id === targetEvent.id && otherSlot.id === targetSlot.id) continue;
@@ -91,6 +95,7 @@ export function detectMusicianDateClashes(params: {
         otherSlot.endTime
       )
     ) {
+      seenEventSlots.add(`${otherEv.id}:${otherSlot.id}`);
       clashes.push({
         eventId: otherEv.id,
         slotId: otherSlot.id,
@@ -100,6 +105,39 @@ export function detectMusicianDateClashes(params: {
         endTime: otherSlot.endTime,
         status: otherBid.status === 'aceptada' ? 'Aceptada' : 'Propuesta pendiente',
       });
+    }
+  }
+
+  for (const otherEv of eventProposals) {
+    if (otherEv.status === 'cancelada' || otherEv.date !== targetEvent.date) continue;
+    for (const otherSlot of otherEv.slots) {
+      if (otherEv.id === targetEvent.id && otherSlot.id === targetSlot.id) continue;
+      if (seenEventSlots.has(`${otherEv.id}:${otherSlot.id}`)) continue;
+      const isConfirmedForMusician =
+        otherSlot.assignedMusicianId === musicianId &&
+        otherSlot.status !== 'libre' &&
+        otherSlot.status !== 'negociando';
+      if (!isConfirmedForMusician) continue;
+
+      if (
+        doTimeRangesOverlap(
+          targetSlot.startTime,
+          targetSlot.endTime,
+          otherSlot.startTime,
+          otherSlot.endTime
+        )
+      ) {
+        seenEventSlots.add(`${otherEv.id}:${otherSlot.id}`);
+        clashes.push({
+          eventId: otherEv.id,
+          slotId: otherSlot.id,
+          title: otherEv.title,
+          venueName: otherEv.venueName,
+          startTime: otherSlot.startTime,
+          endTime: otherSlot.endTime,
+          status: 'Aceptada',
+        });
+      }
     }
   }
 

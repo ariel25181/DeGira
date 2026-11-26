@@ -574,12 +574,19 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                     {detectedClashes.map((c, i) => (
                       <div
                         key={i}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-amber-500/30 text-[11px] text-slate-200 flex items-center justify-between"
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-amber-500/30 text-[11px] text-slate-200 flex items-center justify-between gap-2"
                       >
-                        <span>
-                          <strong>{c.venueName}</strong> • {c.startTime} a {c.endTime} hs
-                        </span>
-                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                        <div className="min-w-0">
+                          <div>
+                            <strong>{c.venueName}</strong> • {c.startTime} a {c.endTime} hs
+                          </div>
+                          {c.title && (
+                            <div className="text-[10px] text-slate-400 truncate">
+                              Evento: {c.title}
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded shrink-0">
                           {c.status}
                         </span>
                       </div>

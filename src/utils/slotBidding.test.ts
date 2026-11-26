@@ -571,20 +571,50 @@ test('17. handles midnight-crossing slot time ranges accurately in doTimeRangesO
   assert.equal(doTimeRangesOverlap('21:00', '22:15', '22:15', '23:30'), false);
 });
 
-test('18. excludes rejected and retracted bids from clash detection', () => {
+test('18. excludes rejected, retracted, and cancelled events from clash detection, while detecting confirmed assigned slots', () => {
   const ev1 = makeProposal({ date: '2026-12-20' });
+  const evCancelled = makeProposal({ id: 'ev-cancelled', date: '2026-12-20', status: 'cancelada' });
   const ev2 = makeBar2Proposal({ date: '2026-12-20' });
   const rejectedBid = makeBid({ eventId: ev1.id, slotId: 'slot-1', musicianId: 'mus-1', status: 'rechazada' });
   const retractedBid = makeBid({ id: 'b-ret', eventId: ev1.id, slotId: 'slot-2', musicianId: 'mus-1', status: 'rechazada', retracted: true });
+  const cancelledBid = makeBid({ id: 'b-canc', eventId: evCancelled.id, slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' });
 
   const clashes = detectMusicianDateClashes({
     musicianId: 'mus-1',
     targetEvent: ev2,
     targetSlot: ev2.slots[0],
-    slotBids: [rejectedBid, retractedBid],
-    eventProposals: [ev1, ev2],
+    slotBids: [rejectedBid, retractedBid, cancelledBid],
+    eventProposals: [ev1, evCancelled, ev2],
   });
   assert.equal(clashes.length, 0);
+
+  const evConfirmedWithoutBid = makeProposal({
+    id: 'ev-conf-nobid',
+    title: 'Clappers Party',
+    date: '2026-12-20',
+    status: 'publicada',
+    slots: [
+      {
+        id: 'slot-conf',
+        startTime: '21:00',
+        endTime: '22:15',
+        requiredMusicians: 2,
+        status: 'confirmado',
+        assignedMusicianId: 'mus-1',
+        assignedMusicianName: 'Músico Test 1',
+      },
+    ],
+  });
+  const confirmedClashes = detectMusicianDateClashes({
+    musicianId: 'mus-1',
+    targetEvent: ev2,
+    targetSlot: ev2.slots[0],
+    slotBids: [],
+    eventProposals: [evConfirmedWithoutBid, ev2],
+  });
+  assert.equal(confirmedClashes.length, 1);
+  assert.equal(confirmedClashes[0].title, 'Clappers Party');
+  assert.equal(confirmedClashes[0].status, 'Aceptada');
 });
 
 // =========================================================================
