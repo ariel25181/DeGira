@@ -70,6 +70,18 @@ export function saveEmailRecord(record: Omit<SentEmailRecord, 'id' | 'sentAt'>):
   return newEmail;
 }
 
+export function replaceSentEmails(records: SentEmailRecord[]): void {
+  const sliced = records.slice(0, 100);
+  memoryEmails = sliced;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sliced));
+    }
+  } catch {
+    // Ignorar si storage está restringido
+  }
+}
+
 /**
  * 1. Envía el email con el Pase QR al usuario público
  */

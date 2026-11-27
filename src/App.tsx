@@ -33,6 +33,8 @@ import { RoleIconMenuModal, ROLE_ACTIVITIES } from './components/flow/RoleActivi
 import { getActiveSession } from './lib/degiraSession.ts';
 import { getPendingReviewsForRole, PendingReviewItem } from './utils/reviewEligibility.ts';
 import { captureAppScreenshotSync } from './utils/captureScreenshot.ts';
+// [QA_TOOL_REMOVABLE]
+import { QaToolOverlay, isQaToolActivated, setQaToolActivated } from './qaTool/index.ts';
 
 function MainApp() {
   const {
@@ -57,6 +59,7 @@ function MainApp() {
     cloudSyncError,
     connectCloudWithGoogle,
     disconnectCloud,
+    qaBridge, // [QA_TOOL_REMOVABLE]
   } = useApp();
   const { signOut } = useSession();
 
@@ -82,9 +85,13 @@ function MainApp() {
     }
   }, [role, activeTab]);
 
-  // Onboarding flow state: siempre pide perfil primero si no hay sesión activa de 24hs
+  // Onboarding flow state: siempre pide perfil primero si no hay sesión activa de 24hs (salvo ?autostart=1)
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
     try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('autostart') === '1') return false;
+      }
       const activeSession = getActiveSession();
       if (!activeSession) return true;
       return false;
@@ -93,6 +100,10 @@ function MainApp() {
     }
   });
   const [isTourOnly, setIsTourOnly] = useState<boolean>(false);
+
+  // [QA_TOOL_REMOVABLE] Live QA Tool activation state
+  const [isQaToolActive, setIsQaToolActive] = useState<boolean>(() => isQaToolActivated());
+  const [isQaDrawerOpen, setIsQaDrawerOpen] = useState<boolean>(false);
 
   // Icon menu modal state
   const [isIconMenuOpen, setIsIconMenuOpen] = useState<boolean>(false);
@@ -681,6 +692,11 @@ function MainApp() {
         currentTab={activeTab}
         initialScreenshot={feedbackScreenshot}
         onRetakeScreenshot={captureAppScreenshotSync}
+        onOpenQaTool={() => {
+          setQaToolActivated(true);
+          setIsQaToolActive(true);
+          setIsQaDrawerOpen(true);
+        }}
       />
 
       {/* AI Studio Dev GitHub Push Modal */}
@@ -697,6 +713,22 @@ function MainApp() {
         isOpen={isInstallGuideOpen}
         onClose={() => setIsInstallGuideOpen(false)}
       />
+
+      {/* [QA_TOOL_REMOVABLE] Live Recorder, Multi-User Simulator & Variation Generator */}
+      {isQaToolActive && qaBridge && (
+        <QaToolOverlay
+          bridge={qaBridge}
+          activeTab={activeTab}
+          isDrawerOpen={isQaDrawerOpen}
+          onOpenDrawer={() => setIsQaDrawerOpen(true)}
+          onCloseDrawer={() => setIsQaDrawerOpen(false)}
+          onDisableQaTool={() => {
+            setQaToolActivated(false);
+            setIsQaDrawerOpen(false);
+            setIsQaToolActive(false);
+          }}
+        />
+      )}
     </div>
   );
 }

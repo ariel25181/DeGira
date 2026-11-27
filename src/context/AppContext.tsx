@@ -96,7 +96,10 @@ import {
   sendNegotiationUpdateEmailToMusician,
   sendReservationCreatedEmail,
   sendReservationExpiredEmail,
+  getSentEmails,
+  replaceSentEmails,
 } from '../lib/emailService.ts';
+import type { QaAppBridge } from '../qaTool/types.ts'; // [QA_TOOL_REMOVABLE]
 import { sendPushNotification } from '../lib/push.ts';
 import { clearActiveSession, saveActiveSession } from '../lib/degiraSession.ts';
 import { TestAccount } from '../data/testAccounts.ts';
@@ -240,6 +243,7 @@ interface AppContextType {
   cloudSyncError: string | null;
   connectCloudWithGoogle: () => Promise<boolean>;
   disconnectCloud: () => Promise<void>;
+  qaBridge?: QaAppBridge; // [QA_TOOL_REMOVABLE]
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -479,6 +483,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const slotBidsRef = useRef<MusicianSlotBid[]>(slotBids);
   const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
   const reviews360Ref = useRef<EventReview360[]>(reviews360);
+  // [QA_TOOL_REMOVABLE] Sandbox flag to keep synthetic QA cohorts strictly off Firestore & localStorage
+  const [isQaSandboxActive, setIsQaSandboxActiveState] = useState<boolean>(false);
+  const qaSandboxActiveRef = useRef<boolean>(false);
+  const setQaSandboxActive = (active: boolean) => {
+    qaSandboxActiveRef.current = active;
+    setIsQaSandboxActiveState(active);
+  };
 
   // Sync to localStorage & refs
   useEffect(() => {
@@ -545,10 +556,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             unsubCloud = subscribeToCloudState({
               uid: user.uid,
               onVenues: (cloudVenues) => {
+                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const normalizedCloud = cloudVenues.map(normalizeCloudVenue);
                 setVenues((prev) => mergeByIdWithCloudPriority(prev, normalizedCloud));
               },
               onEventProposals: (cloudEvents) => {
+                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const normalizedCloud = cloudEvents.map(normalizeCloudEventProposal);
                 const nextEvents = mergeEventProposalsMonotonic(
                   eventProposalsRef.current,
@@ -560,6 +573,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setCloudSyncStatus('connected');
               },
               onSlotBids: (cloudBids) => {
+                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const nextBids = mergeSlotBidsMonotonic(slotBidsRef.current, cloudBids);
                 slotBidsRef.current = nextBids;
                 setSlotBids(nextBids);
@@ -572,9 +586,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setEventProposals(reconciledEvents);
               },
               onReservations: (cloudRes) => {
+                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 setPublicEventReservations((prev) => mergeByIdWithCloudPriority(prev, cloudRes));
               },
               onReviews360: (cloudRevs) => {
+                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 setReviews360((prev) => mergeByIdWithCloudPriority(prev, cloudRevs));
               },
             });
@@ -1304,7 +1320,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = nextEvents;
     setEventProposals(nextEvents);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncEventProposalCreate(newProposal, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
     }
 
@@ -1334,7 +1350,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     eventProposalsRef.current = nextEvents;
     setEventProposals(nextEvents);
-    if (firebaseUser && target) {
+    if (firebaseUser && !qaSandboxActiveRef.current && target) {
       syncEventProposalBarUpdate(
         id,
         {
@@ -1388,7 +1404,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       Promise.all(
         transition.closedBids.map((closedBid) =>
           syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
@@ -1438,7 +1454,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVenues((prev) =>
       prev.map((v) => (v.id === venueId ? { ...v, defaultRiderTemplate: template } : v))
     );
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncVenueRiderUpdate(venueId, template).catch(() => setCloudSyncStatus('error'));
     }
     setNotifications((prev) => [
@@ -1470,7 +1486,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : ev
       )
     );
-    if (firebaseUser && target) {
+    if (firebaseUser && !qaSandboxActiveRef.current && target) {
       syncEventProposalBarUpdate(
         proposalId,
         { cachetPaid: true, cachetPaidAt },
@@ -1590,7 +1606,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncSlotBidCreate(transition.newBid, targetEvent, firebaseUser.uid)
         .then(() => {
           return syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid);
@@ -1658,7 +1674,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     slotBidsRef.current = nextBids;
     setSlotBids(nextBids);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -1714,7 +1730,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncSlotBidMusicianUpdate(transition.updatedBid, transition.event, firebaseUser.uid)
         .then(() => syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid))
         .catch(() => setCloudSyncStatus('error'));
@@ -1814,7 +1830,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       const syncPromise =
         role === 'bar'
           ? Promise.all([
@@ -1949,7 +1965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       Promise.all(
         transition.closedBids.map((closedBid) =>
           syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
@@ -2021,7 +2037,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVenues((prev) => [...prev, newVenue]);
     setActiveVenueId(newVenue.id);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncVenueCreate(newVenue, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
     }
 
@@ -2076,7 +2092,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPublicEventReservations((prev) => [newReservation, ...prev]);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationCreate(newReservation, event, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2143,7 +2159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser && updatedResForCloud) {
+    if (firebaseUser && !qaSandboxActiveRef.current && updatedResForCloud) {
       syncReservationSpectatorUpdate(updatedResForCloud).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2211,7 +2227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationBarUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2275,7 +2291,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationSpectatorUpdate(updatedRes).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2337,7 +2353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationBarUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2410,7 +2426,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((r) => (r.id === res.id ? updatedRes : r))
     );
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationBarUpdate(updatedRes).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2459,7 +2475,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser && updatedEventForCloud) {
+    if (firebaseUser && !qaSandboxActiveRef.current && updatedEventForCloud) {
       syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2505,7 +2521,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setReviews360((prev) => [newRev, ...prev]);
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       const parentEvent = eventProposalsRef.current.find((e) => e.id === newRev.eventId);
       syncReview360Create(newRev, parentEvent, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
@@ -2629,7 +2645,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    if (firebaseUser) {
+    if (firebaseUser && !qaSandboxActiveRef.current) {
       syncReservationSpectatorUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2800,6 +2816,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStoredUserName('');
   };
 
+  // [QA_TOOL_REMOVABLE] Bridge for external src/qaTool/ overlay
+  const qaBridge: QaAppBridge = {
+    role,
+    activeBarAccountId: resolvedBarOwnerId,
+    activeVenueId,
+    activeMusicianId,
+    activePublicUserId,
+    userDisplayName,
+    venues,
+    musicians,
+    publicUsers,
+    eventProposals,
+    slotBids,
+    publicEventReservations,
+    reviews360,
+    rawNotifications: notifications,
+    isQaSandboxActive,
+    setQaSandboxActive,
+    switchActor: ({ role: nextRole, entityId, displayName, email }) => {
+      setRole(nextRole);
+      setStoredUserName(displayName);
+      if (nextRole === 'bar') {
+        setActiveBarAccountId(entityId);
+        setActiveVenueId(entityId);
+      } else if (nextRole === 'musico') {
+        setActiveMusicianId(entityId);
+      } else {
+        setActivePublicUserId(entityId);
+      }
+      saveActiveSession({
+        role: nextRole,
+        userName: displayName,
+        userEmail: email || `${entityId}@degira-qa.test`,
+        remember24h: true,
+      });
+    },
+    loadQaCohortIntoState: (artifacts) => {
+      setVenues(artifacts.venues);
+      setMusicians(artifacts.musicians);
+      setPublicUsers(artifacts.publicUsers);
+      setEventProposals(artifacts.eventProposals);
+      setSlotBids(artifacts.slotBids);
+      setPublicEventReservations(artifacts.publicEventReservations);
+      setReviews360(artifacts.reviews360);
+      setNotifications(artifacts.notifications);
+      replaceSentEmails(artifacts.emails);
+      if (artifacts.venues[0]) {
+        setRole('bar');
+        setActiveBarAccountId(artifacts.venues[0].id);
+        setActiveVenueId(artifacts.venues[0].id);
+        setStoredUserName(artifacts.venues[0].name);
+      }
+    },
+    captureSnapshot: () => ({
+      capturedAt: new Date().toISOString(),
+      role,
+      activeBarAccountId: resolvedBarOwnerId,
+      activeVenueId,
+      activeMusicianId,
+      activePublicUserId,
+      userDisplayName,
+      venues,
+      musicians,
+      publicUsers,
+      eventProposals,
+      slotBids,
+      publicEventReservations,
+      reviews360,
+      notifications,
+      emails: getSentEmails(),
+    }),
+    restoreSnapshot: (snapshot) => {
+      setRole(snapshot.role);
+      setActiveBarAccountId(snapshot.activeBarAccountId);
+      setActiveVenueId(snapshot.activeVenueId);
+      setActiveMusicianId(snapshot.activeMusicianId);
+      setActivePublicUserId(snapshot.activePublicUserId);
+      setStoredUserName(snapshot.userDisplayName);
+      setVenues(snapshot.venues);
+      setMusicians(snapshot.musicians);
+      setPublicUsers(snapshot.publicUsers);
+      setEventProposals(snapshot.eventProposals);
+      setSlotBids(snapshot.slotBids);
+      setPublicEventReservations(snapshot.publicEventReservations);
+      setReviews360(snapshot.reviews360);
+      setNotifications(snapshot.notifications);
+      replaceSentEmails(snapshot.emails);
+    },
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -2879,6 +2985,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cloudSyncError,
         connectCloudWithGoogle,
         disconnectCloud,
+        qaBridge,
       }}
     >
       {children}
