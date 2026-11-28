@@ -7,6 +7,7 @@ import {
   SlotBidHistoryEntry,
   UserRole,
 } from '../types/index.ts';
+import { getEventEndTimestampMs } from './reviewEligibility.ts';
 
 export type SlotAvailability = 'libre' | 'bloqueado' | 'confirmado';
 
@@ -40,6 +41,204 @@ export function makeUniqueId(prefix: string, seedNow = Date.now()): string {
 
 export function isActiveSlotBid(bid: Pick<MusicianSlotBid, 'status' | 'retracted'>): boolean {
   return !bid.retracted && bid.status !== 'rechazada';
+}
+
+export function isEventArchived(
+  ev: Pick<EventProposal, 'status' | 'date' | 'startTime' | 'endTime'>,
+  nowMs: number = Date.now()
+): boolean {
+  if (ev.status === 'archivado') return true;
+  if (ev.status === 'cancelada') return false;
+  const endMs = getEventEndTimestampMs(ev.date, ev.startTime, ev.endTime);
+  return Number.isFinite(endMs) && nowMs >= endMs;
+}
+
+export function getEffectiveEventStatus(
+  ev: Pick<EventProposal, 'status' | 'date' | 'startTime' | 'endTime'>,
+  nowMs: number = Date.now()
+): EventProposal['status'] {
+  return isEventArchived(ev, nowMs) ? 'archivado' : ev.status;
+}
+
+export function formatActionTimestamp(raw?: string): string {
+  if (!raw) return 'Sin fecha registrada';
+  const trimmed = raw.trim();
+  if (!trimmed) return 'Sin fecha registrada';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [y, m, d] = trimmed.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const normalized = /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(trimmed)
+    ? trimmed.replace(/\s+/, 'T')
+    : trimmed;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return trimmed;
+  }
+  const dd = String(parsed.getDate()).padStart(2, '0');
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+  const yyyy = parsed.getFullYear();
+  const hh = String(parsed.getHours()).padStart(2, '0');
+  const min = String(parsed.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min} hs`;
+}
+
+export interface LastActionInfo {
+  timestamp: string;
+  formattedTime: string;
+  actorLabel: string;
+  summary: string;
+}
+
+export function getBidLastActionInfo(bid: MusicianSlotBid, parentEvent?: EventProposal): LastActionInfo {
+  const latestHistory =
+    Array.isArray(bid.history) && bid.history.length > 0
+      ? bid.history[bid.history.length - 1]
+      : undefined;
+
+  if (latestHistory) {
+    const actorLabel =
+      latestHistory.actorName ||
+      (latestHistory.actor === 'bar' ? parentEvent?.venueName || 'Bar' : bid.musicianName);
+    return {
+      timestamp: latestHistory.createdAt || bid.createdAt,
+      formattedTime: formatActionTimestamp(latestHistory.createdAt || bid.createdAt),
+      actorLabel,
+      summary: latestHistory.note || 'Actualización en la negociación',
+    };
+  }
+
+  if (bid.retracted) {
+    const ts = bid.retractedAt || bid.createdAt;
+    return {
+      timestamp: ts,
+      formattedTime: formatActionTimestamp(ts),
+      actorLabel: bid.musicianName,
+      summary: 'Se retractó de la postulación',
+    };
+  }
+
+  if (bid.reminderSentAt) {
+    return {
+      timestamp: bid.reminderSentAt,
+      formattedTime: formatActionTimestamp(bid.reminderSentAt),
+      actorLabel: bid.musicianName,
+      summary: 'Envió recordatorio al bar',
+    };
+  }
+
+  const defaultSummary =
+    bid.status === 'aceptada'
+      ? 'Acuerdo confirmado'
+      : bid.status === 'rechazada'
+      ? 'Propuesta cerrada'
+      : bid.status === 'contraoferta_bar'
+      ? 'Contrapropuesta enviada por el bar'
+      : bid.status === 'contraoferta_musico'
+      ? 'Contrapropuesta enviada por el músico'
+      : 'Postulación enviada al bar';
+
+  return {
+    timestamp: bid.createdAt,
+    formattedTime: formatActionTimestamp(bid.createdAt),
+    actorLabel: bid.musicianName,
+    summary: defaultSummary,
+  };
+}
+
+export function getEventLastActionInfo(
+  proposal: EventProposal,
+  slotBids: MusicianSlotBid[] = []
+): LastActionInfo {
+  const eventTimestampMs = proposal.lastActionAt ? new Date(proposal.lastActionAt.replace(/\s+/, 'T')).getTime() : NaN;
+  const relatedBids = slotBids.filter((b) => b.eventId === proposal.id);
+  let newestBidInfo: LastActionInfo | null = null;
+  let newestBidMs = -Infinity;
+
+  for (const bid of relatedBids) {
+    const info = getBidLastActionInfo(bid, proposal);
+    const ms = new Date((info.timestamp || '').replace(/\s+/, 'T')).getTime();
+    if (Number.isFinite(ms) && ms > newestBidMs) {
+      newestBidMs = ms;
+      newestBidInfo = info;
+    }
+  }
+
+  if (
+    newestBidInfo &&
+    (!Number.isFinite(eventTimestampMs) || newestBidMs > eventTimestampMs)
+  ) {
+    return newestBidInfo;
+  }
+
+  if (proposal.lastActionSummary && proposal.lastActionAt) {
+    return {
+      timestamp: proposal.lastActionAt,
+      formattedTime: formatActionTimestamp(proposal.lastActionAt),
+      actorLabel: proposal.lastActionActor || proposal.venueName,
+      summary: proposal.lastActionSummary,
+    };
+  }
+
+  const effective = getEffectiveEventStatus(proposal);
+  const fallbackTs =
+    proposal.cancelledAt ||
+    proposal.cachetPaidAt ||
+    proposal.feedbackSentAt ||
+    proposal.lastActionAt ||
+    proposal.createdAt;
+  const fallbackSummary =
+    effective === 'archivado'
+      ? 'Evento archivado tras finalizar su horario'
+      : effective === 'cancelada'
+      ? 'Evento cancelado por el bar'
+      : effective === 'agotada'
+      ? 'Entradas agotadas en cartelera'
+      : effective === 'publicada'
+      ? 'Evento publicado en cartelera'
+      : effective === 'para_publicar'
+      ? 'Horario acordado • Listo para publicar'
+      : 'Convocatoria abierta para músicos';
+
+  return {
+    timestamp: fallbackTs,
+    formattedTime: formatActionTimestamp(fallbackTs),
+    actorLabel: proposal.lastActionActor || proposal.venueName,
+    summary: fallbackSummary,
+  };
+}
+
+export function archivePastEvents(
+  events: EventProposal[],
+  nowMs: number = Date.now(),
+  nowIso: string = new Date(nowMs).toISOString()
+): { events: EventProposal[]; archivedEvents: EventProposal[] } {
+  const archivedEvents: EventProposal[] = [];
+  let anyChanged = false;
+
+  const nextEvents = events.map((ev) => {
+    if (ev.status === 'archivado' || ev.status === 'cancelada') return ev;
+    const endMs = getEventEndTimestampMs(ev.date, ev.startTime, ev.endTime);
+    if (Number.isFinite(endMs) && nowMs >= endMs) {
+      anyChanged = true;
+      const updated: EventProposal = {
+        ...ev,
+        status: 'archivado',
+        lastActionAt: ev.lastActionAt || nowIso,
+        lastActionActor: ev.lastActionActor || 'Sistema DeGira',
+        lastActionSummary:
+          'Evento archivado automáticamente al finalizar su horario (solo lectura).',
+      };
+      archivedEvents.push(updated);
+      return updated;
+    }
+    return ev;
+  });
+
+  return {
+    events: anyChanged ? nextEvents : events,
+    archivedEvents,
+  };
 }
 
 function toMinutes(timeStr: string): number {
@@ -218,7 +417,8 @@ export function getSlotDisplayState(params: {
   }
 
   const eventAllowsBidding =
-    proposal.status === 'propuesta' || proposal.status === 'para_publicar';
+    !isEventArchived(proposal) &&
+    (proposal.status === 'propuesta' || proposal.status === 'para_publicar');
 
   const wasPreviouslyRejectedForViewer = Boolean(
     isMusicianViewer &&
@@ -245,6 +445,13 @@ export function canSubmitBidForSlot(params: {
   musicianId: string;
 }): { allowed: boolean; reason?: string } {
   const { proposal, slot, slotBids, musicianId } = params;
+
+  if (isEventArchived(proposal)) {
+    return {
+      allowed: false,
+      reason: 'Este evento ya finalizó y se encuentra archivado en modo solo lectura.',
+    };
+  }
 
   if (
     proposal.status === 'publicada' ||
@@ -319,10 +526,11 @@ export function hasOpenSlotsInProposal(
 export function isEventVisibleInConvocatorias(params: {
   proposal: EventProposal;
   role: UserRole;
-  barStatusFilter?: 'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada';
+  barStatusFilter?: 'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada' | 'cancelada' | 'archivado';
   slotBids?: MusicianSlotBid[];
   musicianId?: string;
   viewerVenueId?: string;
+  nowMs?: number;
 }): boolean {
   const {
     proposal,
@@ -331,32 +539,36 @@ export function isEventVisibleInConvocatorias(params: {
     slotBids = [],
     musicianId,
     viewerVenueId,
+    nowMs = Date.now(),
   } = params;
+
+  const effectiveStatus = getEffectiveEventStatus(proposal, nowMs);
 
   if (role === 'bar') {
     if (viewerVenueId && proposal.venueId !== viewerVenueId) {
       return false;
     }
     if (barStatusFilter === 'todos') return true;
-    return proposal.status === barStatusFilter;
+    return effectiveStatus === barStatusFilter;
   }
 
   if (role === 'musico') {
     if (
-      proposal.status === 'cancelada' ||
-      proposal.status === 'agotada' ||
-      proposal.status === 'publicada'
+      effectiveStatus === 'archivado' ||
+      effectiveStatus === 'cancelada' ||
+      effectiveStatus === 'agotada' ||
+      effectiveStatus === 'publicada'
     ) {
       return false;
     }
 
-    if (proposal.status === 'propuesta') {
+    if (effectiveStatus === 'propuesta') {
       return true;
     }
 
     // En 'para_publicar', los demás músicos deben seguir viendo el evento
     // mientras queden horarios sin confirmar/reservar (o si tienen una propuesta activa).
-    if (proposal.status === 'para_publicar') {
+    if (effectiveStatus === 'para_publicar') {
       if (hasOpenSlotsInProposal(proposal, slotBids)) return true;
       if (
         musicianId &&
@@ -376,7 +588,7 @@ export function isEventVisibleInConvocatorias(params: {
   }
 
   // Espectador
-  return proposal.status === 'publicada';
+  return effectiveStatus === 'publicada';
 }
 
 export function applySlotAcceptToProposal(
@@ -517,6 +729,13 @@ export function validateRespondToSlotBid(params: {
     return {
       allowed: false,
       reason: 'Solo el músico titular de la postulación puede responder esta negociación.',
+    };
+  }
+
+  if (isEventArchived(event)) {
+    return {
+      allowed: false,
+      reason: 'Este evento ya finalizó y está archivado en modo solo lectura.',
     };
   }
 
@@ -671,6 +890,14 @@ export function validateRetractSlotBid(params: {
     };
   }
 
+  if (isEventArchived(event, nowMs)) {
+    return {
+      allowed: false,
+      reason: 'El evento ya finalizó y está archivado en modo solo lectura.',
+      hoursRemaining: 0,
+    };
+  }
+
   if (event.status === 'cancelada') {
     return {
       allowed: false,
@@ -743,6 +970,7 @@ export function applyBidSubmissionTransition(params: {
     return { ok: false, message: check.reason || 'No se puede postular a este horario.' };
   }
 
+  const nowActionIso = new Date().toISOString();
   const nextBids = [normalizedBid, ...slotBids];
   const updatedEvent: EventProposal = {
     ...targetEvent,
@@ -751,6 +979,9 @@ export function applyBidSubmissionTransition(params: {
         ? { ...s, status: 'negociando' as const }
         : s
     ),
+    lastActionAt: normalizedBid.createdAt || nowActionIso,
+    lastActionActor: normalizedBid.musicianName,
+    lastActionSummary: `Nueva postulación para horario ${targetSlot.startTime}–${targetSlot.endTime} hs`,
   };
   const nextEvents = eventProposals.map((ev) => (ev.id === targetEvent.id ? updatedEvent : ev));
 
@@ -861,7 +1092,7 @@ export function applyBidResponseTransition(params: {
         ? 'Rechazó la propuesta.'
         : newCachetType === 'a_la_gorra'
         ? 'Propuso caché a la gorra.'
-        : 'Envió una contraoferta.'),
+        : 'Envió una contrapropuesta.'),
     createdAt: nowIso,
   };
 
@@ -906,21 +1137,51 @@ export function applyBidResponseTransition(params: {
     return b;
   });
 
+  const slotLabel = event.slots.find((s) => s.id === bid.slotId);
+  const slotHours = slotLabel ? `${slotLabel.startTime}–${slotLabel.endTime} hs` : 'horario';
+  const eventActionSummary =
+    action === 'accept'
+      ? `Acordado ${slotHours} con ${bid.musicianName}`
+      : action === 'reject'
+      ? actorRole === 'bar'
+        ? `Rechazada postulación de ${bid.musicianName} (${slotHours})`
+        : `${bid.musicianName} rechazó contraoferta (${slotHours})`
+      : actorRole === 'bar'
+      ? `Contraoferta del bar a ${bid.musicianName} (${slotHours})`
+      : `Contraoferta de ${bid.musicianName} (${slotHours})`;
+
   let updatedEvent: EventProposal | undefined;
 
   if (action === 'accept') {
-    updatedEvent = applySlotAcceptToProposal(event, {
-      slotId: bid.slotId,
-      musicianId: bid.musicianId,
-      musicianName: bid.musicianName,
-      proposedCachetARS: newProposedCachet,
-      cachetType: newCachetType,
-    });
+    updatedEvent = {
+      ...applySlotAcceptToProposal(event, {
+        slotId: bid.slotId,
+        musicianId: bid.musicianId,
+        musicianName: bid.musicianName,
+        proposedCachetARS: newProposedCachet,
+        cachetType: newCachetType,
+      }),
+      lastActionAt: nowIso,
+      lastActionActor: historyEntry.actorName,
+      lastActionSummary: eventActionSummary,
+    };
   } else if (action === 'reject') {
     const remainingActiveForSlot = nextBids.filter(
       (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
     );
-    updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
+    updatedEvent = {
+      ...applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot),
+      lastActionAt: nowIso,
+      lastActionActor: historyEntry.actorName,
+      lastActionSummary: eventActionSummary,
+    };
+  } else {
+    updatedEvent = {
+      ...event,
+      lastActionAt: nowIso,
+      lastActionActor: historyEntry.actorName,
+      lastActionSummary: eventActionSummary,
+    };
   }
 
   const nextEvents = updatedEvent
@@ -1004,7 +1265,13 @@ export function applyBidRetractionTransition(params: {
   const remainingActiveForSlot = nextBids.filter(
     (b) => b.eventId === bid.eventId && b.slotId === bid.slotId && isActiveSlotBid(b)
   );
-  const updatedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
+  const releasedEvent = applySlotReleaseToProposal(event, bid.slotId, remainingActiveForSlot);
+  const updatedEvent: EventProposal = {
+    ...releasedEvent,
+    lastActionAt: nowIso,
+    lastActionActor: bid.musicianName,
+    lastActionSummary: `${bid.musicianName} se retractó de su propuesta; el horario volvió a quedar libre`,
+  };
   const nextEvents = eventProposals.map((ev) => (ev.id === bid.eventId ? updatedEvent : ev));
 
   return {
@@ -1043,6 +1310,12 @@ export function applyPublishEventTransition(params: {
   const target = eventProposals.find((e) => e.id === eventId);
   if (!target) {
     return { ok: false, message: 'Evento no encontrado.' };
+  }
+  if (isEventArchived(target)) {
+    return { ok: false, message: 'Este evento ya finalizó y está archivado (solo lectura).' };
+  }
+  if (target.status === 'cancelada') {
+    return { ok: false, message: 'Este evento está cancelado y no se puede publicar.' };
   }
 
   const hasConfirmedSlot = target.slots.some(
@@ -1097,6 +1370,101 @@ export function applyPublishEventTransition(params: {
     ...target,
     slots: updatedSlots,
     status: 'publicada',
+    lastActionAt: nowIso,
+    lastActionActor: target.venueName,
+    lastActionSummary: 'Evento publicado en cartelera para venta de entradas',
+  };
+
+  const nextEvents = eventProposals.map((ev) => (ev.id === eventId ? updatedEvent : ev));
+
+  return {
+    ok: true,
+    eventProposals: nextEvents,
+    slotBids: nextBids,
+    updatedEvent,
+    closedBids,
+  };
+}
+
+export function applyCancelEventTransition(params: {
+  eventProposals: EventProposal[];
+  slotBids: MusicianSlotBid[];
+  eventId: string;
+  actorVenueId?: string;
+  reason?: string;
+  nowMs?: number;
+  nowIso?: string;
+  historyIdPrefix?: string;
+}):
+  | {
+      ok: true;
+      eventProposals: EventProposal[];
+      slotBids: MusicianSlotBid[];
+      updatedEvent: EventProposal;
+      closedBids: MusicianSlotBid[];
+    }
+  | { ok: false; message: string } {
+  const {
+    eventProposals,
+    slotBids,
+    eventId,
+    actorVenueId,
+    reason,
+    nowMs = Date.now(),
+    nowIso = new Date(nowMs).toISOString(),
+    historyIdPrefix = makeUniqueId('h-cancel'),
+  } = params;
+
+  const target = eventProposals.find((e) => e.id === eventId);
+  if (!target) {
+    return { ok: false, message: 'Evento no encontrado.' };
+  }
+  if (actorVenueId && target.venueId !== actorVenueId) {
+    return { ok: false, message: 'No podés cancelar un evento de otro bar.' };
+  }
+  if (isEventArchived(target, nowMs)) {
+    return { ok: false, message: 'Los eventos archivados no se pueden modificar ni cancelar.' };
+  }
+  if (target.status === 'cancelada') {
+    return { ok: false, message: 'Este evento ya fue cancelado.' };
+  }
+
+  const closedBids: MusicianSlotBid[] = [];
+  const nextBids = slotBids.map((b) => {
+    if (b.eventId === eventId && !b.retracted && b.status !== 'rechazada') {
+      const closed: MusicianSlotBid = {
+        ...b,
+        status: 'rechazada',
+        history: [
+          ...b.history,
+          {
+            id: `${historyIdPrefix}-${b.id.slice(-4)}`,
+            actor: 'bar',
+            actorName: target.venueName,
+            cachetARS: b.proposedCachetARS,
+            ...(b.cachetType ? { cachetType: b.cachetType } : {}),
+            note: reason?.trim()
+              ? `El bar canceló el evento: ${reason.trim()}`
+              : 'El bar canceló este evento.',
+            createdAt: nowIso,
+          },
+        ],
+      };
+      closedBids.push(closed);
+      return closed;
+    }
+    return b;
+  });
+
+  const updatedEvent: EventProposal = {
+    ...target,
+    status: 'cancelada',
+    cancelledAt: nowIso,
+    lastActionAt: nowIso,
+    lastActionActor: target.venueName,
+    lastActionSummary: reason?.trim()
+      ? `Evento cancelado: ${reason.trim()}`
+      : 'El bar canceló el evento',
   };
 
   const nextEvents = eventProposals.map((ev) => (ev.id === eventId ? updatedEvent : ev));

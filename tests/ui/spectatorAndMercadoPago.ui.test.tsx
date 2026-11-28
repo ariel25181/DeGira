@@ -9,6 +9,7 @@ import { ProfileView } from '../../src/components/ProfileView.tsx';
 import { CatalogView } from '../../src/components/CatalogView.tsx';
 import { ShowDetailModal } from '../../src/components/modals/ShowDetailModal.tsx';
 import type { LiveShowConfirmed } from '../../src/types/index.ts';
+import { offsetIsoDate } from '../../src/utils/bookingLogic.ts';
 
 const mockClient = {
   auth: {
@@ -173,7 +174,7 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
           venueNeighborhood: 'San Telmo',
           venuePhoto: 'https://example.com/bar2.jpg',
           title: 'Clappers Party',
-          date: '2026-11-28',
+          date: offsetIsoDate(5),
           startTime: '20:30',
           endTime: '01:00',
           totalCapacity: 80,

@@ -38,6 +38,7 @@ import {
 import { useApp } from '../context/AppContext.tsx';
 import { formatARS, formatCachet, formatDateBA } from '../utils/bookingLogic.ts';
 import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
+import { getEffectiveEventStatus, getEventLastActionInfo } from '../utils/slotBidding.ts';
 import { MusicGenre, NeighborhoodBA, PublicEventReservation, MusicianInputChannel, MusicianMusicLinks, EventProposal } from '../types/index.ts';
 import { UploadReceiptModal } from './modals/UploadReceiptModal.tsx';
 import { BarDoorCheckInModal } from './modals/BarDoorCheckInModal.tsx';
@@ -76,6 +77,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     reservations,
     publicEventReservations,
     eventProposals,
+    slotBids,
     liveShows,
     confirmReservationPayment,
     rejectReservationPayment,
@@ -98,6 +100,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [customPhoneInput, setCustomPhoneInput] = useState<string>(currentPublicUser?.phone || '+54 11 5566-7788');
   const [userDataSavedFeedback, setUserDataSavedFeedback] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [confirmCancelResId, setConfirmCancelResId] = useState<string | null>(null);
 
   // Upload receipt modal state
   const [selectedResForUpload, setSelectedResForUpload] = useState<PublicEventReservation | null>(null);
@@ -582,18 +585,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         <div className="flex items-center gap-2 ml-auto">
                           {res.status === 'pendiente_pago' && !isExpired && (
                             <>
-                              <button
-                                onClick={() => {
-                                  if (window.confirm('¿Querés cancelar esta reserva de mesa? Se liberará el cupo de inmediato.')) {
-                                    cancelPublicEventReservation(res.id);
-                                  }
-                                }}
-                                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
-                                title="Dejar caer la reserva de inmediato"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Cancelar Reserva</span>
-                              </button>
+                              {confirmCancelResId === res.id ? (
+                                <div className="flex flex-wrap items-center gap-1.5 bg-rose-950/60 border border-rose-500/40 rounded-xl px-2.5 py-1.5">
+                                  <span className="text-[11px] text-rose-200 font-semibold">
+                                    ¿Liberar cupo?
+                                  </span>
+                                  <button
+                                    type="button"
+                                    data-testid={`confirm-cancel-res-${res.id}`}
+                                    onClick={() => {
+                                      cancelPublicEventReservation(res.id);
+                                      setConfirmCancelResId(null);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-[11px]"
+                                  >
+                                    Confirmar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmCancelResId(null)}
+                                    className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 text-[11px]"
+                                  >
+                                    Volver
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  data-testid={`cancel-res-${res.id}`}
+                                  onClick={() => setConfirmCancelResId(res.id)}
+                                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
+                                  title="Dejar caer la reserva de inmediato"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Cancelar Reserva</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => setSelectedResForUpload(res)}
                                 className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md"
@@ -1714,7 +1741,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             {(() => {
               const targetVenueId = venueProfile?.id || currentVenue?.id || 'venue-1';
               const venueEvents = eventProposals.filter((p) =>
-                viewingTarget ? p.venueId === targetVenueId : ownedVenueIds.has(p.venueId)
+                (viewingTarget ? p.venueId === targetVenueId : ownedVenueIds.has(p.venueId)) &&
+                p.status !== 'cancelada'
               );
               const totalGross = venueEvents.reduce((acc, p) => {
                 const confirmed = publicEventReservations.filter(
@@ -1757,6 +1785,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   : ownedVenueIds.has(p.venueId)
               )
               .map((p) => {
+                const effectiveStatus = getEffectiveEventStatus(p);
+                const isArchived = effectiveStatus === 'archivado';
+                const isCancelled = effectiveStatus === 'cancelada';
+                const lastActionInfo = getEventLastActionInfo(p, slotBids);
                 const confirmed = publicEventReservations.filter(
                   (r) => r.eventId === p.id && r.status === 'confirmada'
                 );
@@ -1769,18 +1801,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 return (
                   <div
                     key={p.id}
-                    className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl space-y-3.5"
+                    className={`p-4 sm:p-5 bg-slate-900 border rounded-2xl space-y-3.5 ${
+                      isCancelled ? 'border-rose-500/30 opacity-75' : isArchived ? 'border-slate-700' : 'border-slate-800'
+                    }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-base font-bold text-slate-100">{p.title}</h4>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 font-bold">
                             {formatDateBA(p.date)}
                           </span>
+                          {(isArchived || isCancelled) && (
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border ${
+                                isCancelled
+                                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                  : 'bg-slate-800 text-slate-300 border-slate-700'
+                              }`}
+                            >
+                              {isCancelled ? 'Cancelado' : 'Archivado • Solo lectura'}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Músico asignado: <strong className="text-slate-200">{musicianNames}</strong>
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Último cambio: <span className="text-slate-300 font-semibold">{lastActionInfo.formattedTime}</span> • {lastActionInfo.summary}
                         </p>
                       </div>
 
@@ -1819,7 +1867,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
                       <div className="text-xs text-slate-400">
-                        {p.cachetPaid ? (
+                        {isCancelled ? (
+                          <span className="inline-flex items-center gap-1.5 text-rose-300 font-semibold">
+                            <Lock className="w-4 h-4" />
+                            <span>Evento cancelado — sin liquidación</span>
+                          </span>
+                        ) : p.cachetPaid ? (
                           <span className="inline-flex items-center gap-1.5 text-emerald-400 font-semibold">
                             <CheckCircle className="w-4 h-4" />
                             <span>Cachet liquidado el {formatDateBA(p.cachetPaidAt || new Date().toISOString())}</span>
@@ -1832,7 +1885,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         )}
                       </div>
 
-                      {!p.cachetPaid && (
+                      {!isCancelled && !p.cachetPaid && (
                         <button
                           onClick={() => liquidateMusicianCachet(p.id)}
                           className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 self-start sm:self-auto"

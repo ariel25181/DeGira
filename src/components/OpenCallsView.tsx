@@ -33,6 +33,9 @@ import {
   getSlotDisplayState,
   isEventVisibleInConvocatorias,
   isBidVisibleToViewer,
+  getEffectiveEventStatus,
+  getEventLastActionInfo,
+  getBidLastActionInfo,
 } from '../utils/slotBidding.ts';
 import { CreateEventProposalModal } from './modals/CreateEventProposalModal.tsx';
 import { MusicianBidModal } from './modals/MusicianBidModal.tsx';
@@ -60,6 +63,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     slotBids,
     publishEventProposal,
     updateEventProposal,
+    cancelEventProposal,
     respondToSlotBid,
   } = useApp();
 
@@ -75,12 +79,19 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   const [counterNote, setCounterNote] = useState<string>('');
   const [negError, setNegError] = useState<string | null>(null);
 
+  // Inline bar cancellation confirmation state (no window.confirm)
+  const [confirmCancelEventId, setConfirmCancelEventId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [cancelFeedback, setCancelFeedback] = useState<string | null>(null);
+
   // Expandable proposal details
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
 
   // Status filter for bar & musician
-  const [barStatusFilter, setBarStatusFilter] = useState<'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada'>('todos');
-  const [musicianStatusFilter, setMusicianStatusFilter] = useState<'abiertas' | 'cerradas'>('abiertas');
+  const [barStatusFilter, setBarStatusFilter] = useState<
+    'todos' | 'propuesta' | 'para_publicar' | 'publicada' | 'agotada' | 'cancelada' | 'archivado'
+  >('todos');
+  const [musicianStatusFilter, setMusicianStatusFilter] = useState<'abiertas' | 'cerradas' | 'archivados'>('abiertas');
 
   useEffect(() => {
     setCounterInputId(null);
@@ -89,6 +100,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     setNegError(null);
     setBiddingEvent(null);
     setBiddingSlot(null);
+    setConfirmCancelEventId(null);
+    setCancelReason('');
+    setCancelFeedback(null);
   }, [role, currentVenue?.id, currentMusician?.id]);
 
   const musicianOpenProposals =
@@ -105,26 +119,38 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
   const musicianClosedProposals =
     role === 'musico'
-      ? eventProposals.filter(
-          (p) =>
-            (p.status === 'publicada' || p.status === 'agotada' || p.status === 'para_publicar') &&
+      ? eventProposals.filter((p) => {
+          const eff = getEffectiveEventStatus(p);
+          return (
+            (eff === 'publicada' || eff === 'agotada' || eff === 'para_publicar') &&
             !isEventVisibleInConvocatorias({
               proposal: p,
               role: 'musico',
               slotBids,
               musicianId: currentMusician?.id,
             })
-        )
+          );
+        })
+      : [];
+
+  const musicianArchivedProposals =
+    role === 'musico'
+      ? eventProposals.filter((p) => {
+          const eff = getEffectiveEventStatus(p);
+          return eff === 'archivado' || eff === 'cancelada';
+        })
       : [];
 
   // Visibilidad estricta por rol y bar activo:
   // - Bar: únicamente sus propias fechas (currentVenue.id) según filtro
-  // - Músico: propuestas abiertas ('abiertas') o ya cerradas/publicadas ('cerradas')
+  // - Músico: propuestas abiertas ('abiertas'), cerradas/publicadas ('cerradas'), o archivadas/canceladas ('archivados')
   const visibleProposals =
     role === 'musico'
       ? musicianStatusFilter === 'abiertas'
         ? musicianOpenProposals
-        : musicianClosedProposals
+        : musicianStatusFilter === 'cerradas'
+        ? musicianClosedProposals
+        : musicianArchivedProposals
       : eventProposals.filter((p) =>
           isEventVisibleInConvocatorias({
             proposal: p,
@@ -143,10 +169,12 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
 
   const barStatusCounts = {
     todos: barScopedEvents.length,
-    propuesta: barScopedEvents.filter((p) => p.status === 'propuesta').length,
-    para_publicar: barScopedEvents.filter((p) => p.status === 'para_publicar').length,
-    publicada: barScopedEvents.filter((p) => p.status === 'publicada').length,
-    agotada: barScopedEvents.filter((p) => p.status === 'agotada').length,
+    propuesta: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'propuesta').length,
+    para_publicar: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'para_publicar').length,
+    publicada: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'publicada').length,
+    agotada: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'agotada').length,
+    cancelada: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'cancelada').length,
+    archivado: barScopedEvents.filter((p) => getEffectiveEventStatus(p) === 'archivado').length,
   };
 
   const venueEventCounts = new Map<string, number>();
@@ -273,21 +301,25 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
         </div>
       </div>
 
-      {/* Bar Status Tabs */}
+      {/* Bar Status Tabs (same segmented surface style as Musician) */}
       {role === 'bar' && (
         <div className="space-y-1.5">
           <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
-            Filtrar propuestas por estado:
+            Filtrar eventos por estado:
           </span>
-          <div className="flex flex-wrap gap-2 pb-1 text-xs font-bold">
-            {(['todos', 'propuesta', 'para_publicar', 'publicada', 'agotada'] as const).map((st) => (
+          <div className="flex flex-wrap gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs font-bold">
+            {(
+              ['todos', 'propuesta', 'para_publicar', 'publicada', 'agotada', 'cancelada', 'archivado'] as const
+            ).map((st) => (
               <button
                 key={st}
+                type="button"
+                data-testid={`bar-events-tab-${st}`}
                 onClick={() => setBarStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-xl border whitespace-nowrap transition-all ${
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
                   barStatusFilter === st
-                    ? 'bg-amber-500 text-slate-950 border-amber-500 font-black'
-                    : 'bg-slate-900 text-slate-300 border-slate-800'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                    : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
                 }`}
               >
                 {st === 'todos'
@@ -298,39 +330,73 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                   ? `Para Publicar (${barStatusCounts.para_publicar})`
                   : st === 'publicada'
                   ? `Publicadas (${barStatusCounts.publicada})`
-                  : `Agotadas (${barStatusCounts.agotada})`}
+                  : st === 'agotada'
+                  ? `Agotadas (${barStatusCounts.agotada})`
+                  : st === 'cancelada'
+                  ? `Canceladas (${barStatusCounts.cancelada})`
+                  : `Archivados (${barStatusCounts.archivado})`}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Musician Status Tabs */}
+      {/* Musician Status Tabs (unified style with Bar) */}
       {role === 'musico' && (
-        <div className="flex flex-wrap gap-2 pb-1 text-xs font-bold">
+        <div className="space-y-1.5">
+          <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
+            Filtrar convocatorias por estado:
+          </span>
+          <div className="flex flex-wrap gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs font-bold">
+            <button
+              type="button"
+              data-testid="musician-calls-open-tab"
+              onClick={() => setMusicianStatusFilter('abiertas')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
+                musicianStatusFilter === 'abiertas'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
+              }`}
+            >
+              Abiertas ({musicianOpenProposals.length})
+            </button>
+            <button
+              type="button"
+              data-testid="musician-calls-closed-tab"
+              onClick={() => setMusicianStatusFilter('cerradas')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
+                musicianStatusFilter === 'cerradas'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
+              }`}
+            >
+              Publicadas / Completas ({musicianClosedProposals.length})
+            </button>
+            <button
+              type="button"
+              data-testid="musician-calls-archived-tab"
+              onClick={() => setMusicianStatusFilter('archivados')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
+                musicianStatusFilter === 'archivados'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
+              }`}
+            >
+              Archivados / Cancelados ({musicianArchivedProposals.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cancelFeedback && (
+        <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-xs text-amber-200 flex items-center justify-between">
+          <span>{cancelFeedback}</span>
           <button
             type="button"
-            data-testid="musician-calls-open-tab"
-            onClick={() => setMusicianStatusFilter('abiertas')}
-            className={`px-3 py-1.5 rounded-xl border whitespace-nowrap transition-all ${
-              musicianStatusFilter === 'abiertas'
-                ? 'bg-amber-500 text-slate-950 border-amber-500 font-black'
-                : 'bg-slate-900 text-slate-300 border-slate-800'
-            }`}
+            onClick={() => setCancelFeedback(null)}
+            className="text-[10px] uppercase font-bold underline ml-2"
           >
-            Abiertas ({musicianOpenProposals.length})
-          </button>
-          <button
-            type="button"
-            data-testid="musician-calls-closed-tab"
-            onClick={() => setMusicianStatusFilter('cerradas')}
-            className={`px-3 py-1.5 rounded-xl border whitespace-nowrap transition-all ${
-              musicianStatusFilter === 'cerradas'
-                ? 'bg-amber-500 text-slate-950 border-amber-500 font-black'
-                : 'bg-slate-900 text-slate-300 border-slate-800'
-            }`}
-          >
-            Publicadas / Completas ({musicianClosedProposals.length})
+            Cerrar
           </button>
         </div>
       )}
@@ -344,9 +410,11 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
               {role === 'musico'
                 ? musicianStatusFilter === 'abiertas'
                   ? 'Las convocatorias con horarios ya acordados o publicadas pasan a "Publicadas / Completas" y a Cartelera.'
+                  : musicianStatusFilter === 'archivados'
+                  ? 'Aquí aparecerán los eventos ya finalizados (archivados) o cancelados en modo solo lectura.'
                   : 'Todavía no hay fechas publicadas o con todos sus horarios cerrados.'
                 : barStatusCounts.todos > 0 && barStatusFilter !== 'todos'
-                ? `Este local tiene ${barStatusCounts.todos} ${barStatusCounts.todos === 1 ? 'evento activo' : 'eventos activos'} en otros estados (Para Publicar / Publicadas).`
+                ? `Este local tiene ${barStatusCounts.todos} ${barStatusCounts.todos === 1 ? 'evento' : 'eventos'} en otros estados.`
                 : 'Creá una nueva propuesta con el botón superior.'}
             </p>
             {role === 'bar' && barStatusCounts.todos > 0 && barStatusFilter !== 'todos' && (
@@ -362,6 +430,12 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
         ) : (
           visibleProposals.map((proposal) => {
             const isExpanded = expandedProposalId === proposal.id;
+            const effectiveStatus = getEffectiveEventStatus(proposal);
+            const isArchived = effectiveStatus === 'archivado';
+            const isCancelled = effectiveStatus === 'cancelada';
+            const isReadOnly = isArchived || isCancelled;
+            const eventLastAction = getEventLastActionInfo(proposal, slotBids);
+
             const proposalBids = slotBids.filter(
               (b) =>
                 b.eventId === proposal.id &&
@@ -382,7 +456,12 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
             return (
               <div
                 key={proposal.id}
-                className="bg-slate-900/90 border border-slate-800 hover:border-amber-500/40 rounded-2xl overflow-hidden shadow-md transition-all space-y-0"
+                data-testid={`event-card-${proposal.id}`}
+                className={`border rounded-2xl overflow-hidden shadow-md transition-all space-y-0 ${
+                  isReadOnly
+                    ? 'bg-slate-900/60 border-slate-800/90 opacity-90'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-amber-500/40'
+                }`}
               >
                 {/* Header */}
                 <div className="p-4 sm:p-5 space-y-3">
@@ -430,24 +509,30 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     <div className="shrink-0 self-start">
                       <span
                         className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-black uppercase border ${
-                          proposal.status === 'publicada'
+                          effectiveStatus === 'publicada'
                             ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                            : proposal.status === 'para_publicar'
+                            : effectiveStatus === 'para_publicar'
                             ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                            : proposal.status === 'agotada'
+                            : effectiveStatus === 'agotada'
                             ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                            : effectiveStatus === 'cancelada'
+                            ? 'bg-rose-950/60 text-rose-300 border-rose-500/40'
+                            : effectiveStatus === 'archivado'
+                            ? 'bg-slate-800 text-slate-300 border-slate-600'
                             : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                         }`}
                       >
-                        {proposal.status === 'propuesta'
+                        {effectiveStatus === 'propuesta'
                           ? 'Propuesta de Evento'
-                          : proposal.status === 'para_publicar'
+                          : effectiveStatus === 'para_publicar'
                           ? 'Lista para Publicar'
-                          : proposal.status === 'publicada'
+                          : effectiveStatus === 'publicada'
                           ? 'Publicada en Cartelera'
-                          : proposal.status === 'agotada'
+                          : effectiveStatus === 'agotada'
                           ? 'Agotada'
-                          : 'Cancelada'}
+                          : effectiveStatus === 'archivado'
+                          ? 'Archivado • Solo lectura'
+                          : 'Cancelada • Solo lectura'}
                       </span>
                     </div>
                   </div>
@@ -478,6 +563,39 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                       </strong>
                     </div>
                   </div>
+
+                  {/* Last Action Audit Strip */}
+                  <div
+                    data-testid={`event-last-action-${proposal.id}`}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800/90 text-[11px]"
+                  >
+                    <span className="text-slate-300 flex items-center gap-1.5 min-w-0">
+                      <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="break-words">
+                        <strong className="text-slate-200">Última actualización:</strong>{' '}
+                        <span className="text-amber-300 font-semibold">{eventLastAction.actorLabel}</span> —{' '}
+                        {eventLastAction.summary}
+                      </span>
+                    </span>
+                    <span className="text-slate-400 font-mono text-[10px] shrink-0">
+                      {eventLastAction.formattedTime}
+                    </span>
+                  </div>
+
+                  {/* Read-Only Banner for Archived / Cancelled Events */}
+                  {isReadOnly && (
+                    <div
+                      data-testid={`event-readonly-banner-${proposal.id}`}
+                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-[11px] text-slate-300 flex items-center gap-2"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>
+                        {isArchived
+                          ? 'Evento finalizado y archivado — visible en modo solo lectura para todos los perfiles.'
+                          : 'Evento cancelado por el bar — visible en modo solo lectura.'}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Rider Summary */}
                   <div className="p-3 bg-slate-950/50 rounded-xl border border-slate-800 text-xs space-y-1">
@@ -563,7 +681,11 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 </div>
                               ) : (
                                 <div className="text-slate-400 text-[11px] mt-0.5">
-                                  {proposal.status === 'publicada' || proposal.status === 'agotada' || proposal.status === 'cancelada'
+                                  {isArchived
+                                    ? 'Horario archivado (evento finalizado • solo lectura)'
+                                    : isCancelled
+                                    ? 'Horario cancelado (evento cerrado)'
+                                    : effectiveStatus === 'publicada' || effectiveStatus === 'agotada'
                                     ? 'Horario sin músico asignado (convocatoria cerrada en cartelera)'
                                     : role === 'bar'
                                     ? 'Horario libre • Esperando postulaciones de músicos'
@@ -574,8 +696,8 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                               )}
                             </div>
 
-                            {/* Musician action to bid — solo si el horario está libre */}
-                            {slotState.canBid ? (
+                            {/* Musician action to bid — solo si el horario está libre y el evento activo */}
+                            {slotState.canBid && !isReadOnly ? (
                               <button
                                 onClick={() => handleOpenBidding(proposal, slot)}
                                 className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1 shadow-md shrink-0"
@@ -583,7 +705,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 <Music className="w-3 h-3" />
                                 <span>Cubrir este Horario</span>
                               </button>
-                            ) : role === 'musico' && slotState.availability === 'bloqueado' ? (
+                            ) : role === 'musico' && slotState.availability === 'bloqueado' && !isReadOnly ? (
                               <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-[11px] inline-flex items-center gap-1 shrink-0">
                                 <Lock className="w-3 h-3" />
                                 <span>{slotState.isLockedByViewer ? 'Ya te postulaste' : 'Bloqueado'}</span>
@@ -595,42 +717,112 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Bar actions to Move to 'para_publicar' and 'publicada' */}
+                  {/* Bar actions to Move to 'para_publicar', 'publicada', or inline cancel */}
                   {role === 'bar' && (
-                    <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs text-slate-400">
-                        Código de referencia: <span className="font-mono text-amber-400 font-bold">{proposal.eventCode}</span>
+                    <div className="pt-3 border-t border-slate-800 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-slate-400">
+                          Código de referencia: <span className="font-mono text-amber-400 font-bold">{proposal.eventCode}</span>
+                        </div>
+
+                        {!isReadOnly && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {effectiveStatus === 'propuesta' && hasAtLeastOneSlotCovered && (
+                              <button
+                                type="button"
+                                onClick={() => handleMoveToParaPublicar(proposal.id)}
+                                className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition-colors shadow-sm"
+                              >
+                                Pasar a Lista para Publicar
+                              </button>
+                            )}
+
+                            {(effectiveStatus === 'para_publicar' ||
+                              (effectiveStatus === 'propuesta' && hasAtLeastOneSlotCovered)) && (
+                              <button
+                                type="button"
+                                onClick={() => handleBarPublish(proposal.id)}
+                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center gap-1.5"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Publicar en Cartelera (Manual)</span>
+                              </button>
+                            )}
+
+                            {effectiveStatus === 'publicada' && (
+                              <button
+                                type="button"
+                                onClick={() => updateEventProposal(proposal.id, { status: 'propuesta' })}
+                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors"
+                              >
+                                Pausar / Volver a Propuesta
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              data-testid={`bar-cancel-event-${proposal.id}`}
+                              onClick={() => {
+                                setConfirmCancelEventId(
+                                  confirmCancelEventId === proposal.id ? null : proposal.id
+                                );
+                                setCancelReason('');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Cancelar Evento</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {proposal.status === 'propuesta' && hasAtLeastOneSlotCovered && (
-                          <button
-                            onClick={() => handleMoveToParaPublicar(proposal.id)}
-                            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition-colors shadow-sm"
-                          >
-                            Pasar a Lista para Publicar
-                          </button>
-                        )}
-
-                        {(proposal.status === 'para_publicar' || (proposal.status === 'propuesta' && hasAtLeastOneSlotCovered)) && (
-                          <button
-                            onClick={() => handleBarPublish(proposal.id)}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all flex items-center gap-1.5"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Publicar en Cartelera (Manual)</span>
-                          </button>
-                        )}
-
-                        {proposal.status === 'publicada' && (
-                          <button
-                            onClick={() => updateEventProposal(proposal.id, { status: 'propuesta' })}
-                            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors"
-                          >
-                            Pausar / Volver a Propuesta
-                          </button>
-                        )}
-                      </div>
+                      {!isReadOnly && confirmCancelEventId === proposal.id && (
+                        <div
+                          data-testid={`bar-cancel-confirm-panel-${proposal.id}`}
+                          className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-2"
+                        >
+                          <p className="text-xs font-bold text-rose-200">
+                            ¿Confirmás cancelar "{proposal.title}"? Pasará a modo lectura y cerrará postulaciones activas.
+                          </p>
+                          <input
+                            type="text"
+                            placeholder="Motivo opcional para músicos (ej: cambio de programación)..."
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100"
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid={`bar-confirm-cancel-event-${proposal.id}`}
+                              onClick={() => {
+                                const res = cancelEventProposal(proposal.id, cancelReason);
+                                if (res.ok) {
+                                  setConfirmCancelEventId(null);
+                                  setCancelReason('');
+                                  setCancelFeedback(`Se canceló "${proposal.title}". El evento quedó en modo lectura.`);
+                                } else {
+                                  setCancelFeedback(res.message || 'No se pudo cancelar el evento.');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs"
+                            >
+                              Confirmar Cancelación
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmCancelEventId(null);
+                                setCancelReason('');
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs"
+                            >
+                              Volver
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -668,9 +860,10 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                             b.status === 'aceptada'
                         );
                         const isEventClosedForNeg =
-                          proposal.status === 'publicada' ||
-                          proposal.status === 'agotada' ||
-                          proposal.status === 'cancelada';
+                          isReadOnly ||
+                          effectiveStatus === 'publicada' ||
+                          effectiveStatus === 'agotada';
+                        const bidLastAction = getBidLastActionInfo(bid, proposal);
 
                         return (
                           <div
@@ -678,8 +871,8 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                             className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
                               bid.status === 'aceptada' && !bid.retracted
                                 ? 'bg-emerald-950/20 border-emerald-500/40'
-                                : bid.status === 'rechazada' || bid.retracted
-                                ? 'bg-slate-900 border-slate-800 opacity-60'
+                                : bid.status === 'rechazada' || bid.retracted || isReadOnly
+                                ? 'bg-slate-900 border-slate-800 opacity-70'
                                 : 'bg-slate-900 border-slate-800'
                             }`}
                           >
@@ -708,9 +901,15 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                   {bid.retracted
                                     ? 'Retractada'
                                     : bid.status === 'aceptada'
-                                    ? 'Aceptada • Acordada'
+                                    ? isArchived
+                                      ? 'Acordada • Archivada'
+                                      : 'Aceptada • Acordada'
                                     : bid.status === 'rechazada'
                                     ? 'Rechazada'
+                                    : isArchived
+                                    ? 'Archivada (Solo lectura)'
+                                    : isCancelled
+                                    ? 'Cancelada'
                                     : isEventClosedForNeg
                                     ? 'Cerrada (Evento publicado)'
                                     : hasAcceptedOtherInSlot || bidSlot?.status === 'confirmado'
@@ -722,6 +921,13 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                     : 'Pendiente de Revisión'}
                                 </span>
                               </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-[10px] text-slate-400">
+                              <span className="break-words">
+                                <strong className="text-slate-300">Último cambio:</strong> {bidLastAction.actorLabel} — {bidLastAction.summary}
+                              </span>
+                              <span className="font-mono shrink-0">{bidLastAction.formattedTime}</span>
                             </div>
 
                             {/* Equipment & Audio Links & Input List: Full Width below header */}
@@ -818,14 +1024,14 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                               );
                               const canBarNegotiate =
                                 role === 'bar' &&
+                                !isReadOnly &&
                                 bid.status !== 'aceptada' &&
                                 bid.status !== 'rechazada' &&
                                 !bid.retracted &&
                                 !hasAcceptedBidInSlot &&
                                 slotForBid?.status !== 'confirmado' &&
-                                proposal.status !== 'publicada' &&
-                                proposal.status !== 'agotada' &&
-                                proposal.status !== 'cancelada';
+                                effectiveStatus !== 'publicada' &&
+                                effectiveStatus !== 'agotada';
 
                               if (!canBarNegotiate) return null;
 
@@ -963,7 +1169,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                             bid.id,
                                             'counter',
                                             numericAmount,
-                                            counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra.' : 'Contraoferta enviada.'),
+                                            counterNote || (counterCachetType === 'a_la_gorra' ? 'Contrapropuesta a la gorra.' : 'Contrapropuesta enviada.'),
                                             { cachetType: counterCachetType }
                                           );
                                           if (!res.ok) {
@@ -1152,7 +1358,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                           bid.id,
                                           'counter',
                                           numericAmount,
-                                          counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el músico.' : 'Contraoferta enviada por el músico.'),
+                                          counterNote || (counterCachetType === 'a_la_gorra' ? 'Contrapropuesta a la gorra enviada por el músico.' : 'Contrapropuesta enviada por el músico.'),
                                           { cachetType: counterCachetType, musiciansCount: counterMusiciansCount }
                                         );
                                         if (!res.ok) {

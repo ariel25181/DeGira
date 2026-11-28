@@ -10,6 +10,7 @@ import { OpenCallsView } from '../../src/components/OpenCallsView.tsx';
 import { AgreementsAndReviewsView } from '../../src/components/AgreementsAndReviewsView.tsx';
 import { Header } from '../../src/components/Header.tsx';
 import { NotificationsDrawer } from '../../src/components/modals/NotificationsDrawer.tsx';
+import { offsetIsoDate } from '../../src/utils/bookingLogic.ts';
 
 const mockClient = {
   auth: {
@@ -201,7 +202,7 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
           venueNeighborhood: 'Caballito',
           venuePhoto: 'https://example.com/subasta.jpg',
           title: 'Noche de cantautores',
-          date: '2026-11-29',
+          date: offsetIsoDate(5),
           startTime: '20:30',
           endTime: '01:00',
           totalCapacity: 80,
@@ -382,7 +383,7 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
           venueNeighborhood: 'Palermo Soho',
           venuePhoto: '',
           title: 'Ciclo Two-Slot Publish',
-          date: '2026-12-20',
+          date: offsetIsoDate(15),
           startTime: '21:00',
           endTime: '23:30',
           totalCapacity: 80,
@@ -489,6 +490,142 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
     assert.strictEqual(screen.queryByTestId('pending-bar-bids-badge'), null);
     assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
     screen.getByRole('button', { name: /Publicadas \(1\)/i });
+  });
+
+  it('supports status filters, last-action timestamps, archived read-only mode, inline 2-click Bar cancellation, and zero QA Lab UI', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem(
+      'suena_ba_v3_eventProposals',
+      JSON.stringify([
+        {
+          id: 'ev-fut-cancel',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Ciclo Futuro Cancelable',
+          date: offsetIsoDate(8),
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 60000,
+          ticketPriceARS: 5000,
+          targetGenres: ['Jazz'],
+          slots: [
+            { id: 'slot-fc-1', startTime: '21:00', endTime: '22:15', requiredMusicians: 2, status: 'negociando' },
+          ],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'propuesta',
+          eventCode: 'DG-FUT-1',
+          createdAt: offsetIsoDate(-2),
+        },
+        {
+          id: 'ev-past-ro',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Ciclo Pasado Archivado',
+          date: offsetIsoDate(-10),
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 60000,
+          ticketPriceARS: 5000,
+          targetGenres: ['Jazz'],
+          slots: [
+            { id: 'slot-pa-1', startTime: '21:00', endTime: '22:15', requiredMusicians: 2, status: 'libre' },
+          ],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'propuesta',
+          eventCode: 'DG-PAST-1',
+          createdAt: offsetIsoDate(-15),
+        },
+      ])
+    );
+    localStorage.setItem(
+      'suena_ba_v3_slotBids',
+      JSON.stringify([
+        {
+          id: 'bid-fut-1',
+          eventId: 'ev-fut-cancel',
+          slotId: 'slot-fc-1',
+          musicianId: 'mus-1',
+          musicianName: 'Músico Test 1',
+          musicianAvatar: '',
+          proposedCachetARS: 65000,
+          musiciansCount: 2,
+          equipmentProvided: 'Guitarras',
+          equipmentNeeded: 'Micrófonos',
+          status: 'pendiente_bar',
+          history: [
+            { id: 'h-f1', actor: 'musico', actorName: 'Músico Test 1', cachetARS: 65000, note: 'Postulación inicial enviada', createdAt: new Date().toISOString() },
+          ],
+          createdAt: new Date().toISOString(),
+        },
+      ])
+    );
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <Header
+              isMobileFrame={false}
+              setIsMobileFrame={() => {}}
+              onOpenNotifications={() => {}}
+              onSelectTab={() => {}}
+              onOpenFeedback={() => {}}
+            />
+            <OpenCallsView onViewVenue={() => {}} onViewMusician={() => {}} />
+            <AgreementsAndReviewsView onOpenReviewModal={() => {}} onViewVenue={() => {}} onViewMusician={() => {}} />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    // Zero QA Lab UI
+    assert.strictEqual(screen.queryByText(/QA Lab/i), null);
+    assert.strictEqual(screen.queryByTestId('qa-lab-btn'), null);
+
+    // Past event auto-archived & strictly read-only
+    screen.getByTestId('event-readonly-banner-ev-past-ro');
+    assert.strictEqual(screen.queryByTestId('bar-cancel-event-ev-past-ro'), null);
+    assert.ok(screen.getByTestId('event-last-action-ev-fut-cancel'));
+    assert.ok(screen.getByTestId('bar-bid-last-action-bid-fut-1'));
+
+    // Bar bid status filters work
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-bids-filter-acordadas'));
+    });
+    assert.strictEqual(screen.queryByTestId('bar-bid-last-action-bid-fut-1'), null);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-bids-filter-pendientes'));
+    });
+    screen.getByTestId('bar-bid-last-action-bid-fut-1');
+
+    // Inline 2-click Bar cancellation
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-cancel-event-ev-fut-cancel'));
+    });
+    screen.getByTestId('bar-cancel-confirm-panel-ev-fut-cancel');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-confirm-cancel-event-ev-fut-cancel'));
+    });
+    screen.getByTestId('event-readonly-banner-ev-fut-cancel');
+
+    // Verify Bar bids filter moved the bid to archivadas and no Accept button remains
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-bids-filter-archivadas'));
+    });
+    screen.getByTestId('bar-bid-last-action-bid-fut-1');
+    assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
   });
 });
 

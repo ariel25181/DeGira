@@ -19,9 +19,15 @@ import {
   Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
-import { formatARS, formatCachet, formatDateBA, sanitizeNumericInput } from '../utils/bookingLogic.ts';
+import { formatARS, formatCachet, formatDateBA, offsetIsoDate, sanitizeNumericInput } from '../utils/bookingLogic.ts';
 import { getPendingReviewsForRole } from '../utils/reviewEligibility.ts';
-import { detectMusicianDateClashes, isActiveSlotBid } from '../utils/slotBidding.ts';
+import {
+  detectMusicianDateClashes,
+  isActiveSlotBid,
+  isEventArchived,
+  getEffectiveEventStatus,
+  getBidLastActionInfo,
+} from '../utils/slotBidding.ts';
 import type { CachetMode, EventProposal } from '../types/index.ts';
 
 interface AgreementsAndReviewsViewProps {
@@ -81,6 +87,12 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const [counterNote, setCounterNote] = useState<string>('');
   const [confirmRetractBidId, setConfirmRetractBidId] = useState<string | null>(null);
   const [negError, setNegError] = useState<string | null>(null);
+  const [barBidFilter, setBarBidFilter] = useState<
+    'todas' | 'pendientes' | 'acordadas' | 'rechazadas' | 'archivadas'
+  >('todas');
+  const [musicianAppFilter, setMusicianAppFilter] = useState<
+    'todas' | 'pendientes' | 'contraoferta' | 'acordadas' | 'cerradas_archivadas'
+  >('todas');
 
   // Keep sub-tabs strictly scoped to the active role (bar vs musico) & clear ephemeral inputs on switch
   useEffect(() => {
@@ -94,6 +106,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     setRetractionFeedback(null);
     setConfirmRetractBidId(null);
     setNegError(null);
+    setBarBidFilter('todas');
+    setMusicianAppFilter('todas');
   }, [role, activeVenueId, activeMusicianId]);
 
   const isBar = role === 'bar';
@@ -114,8 +128,18 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   // Upcoming confirmed shows scoped strictly to active Bar or Musician
   const upcomingShows = liveShows.filter((show) => {
     if (show.isCompleted) return false;
-    if (isBar && currentVenue) return show.venueId === currentVenue.id;
-    if (!isBar && currentMusician) return show.musicianId === currentMusician.id;
+    if (isBar && currentVenue && show.venueId !== currentVenue.id) return false;
+    if (!isBar && currentMusician && show.musicianId !== currentMusician.id) return false;
+    const matchingEv = eventProposals.find(
+      (ev) =>
+        ev.venueId === show.venueId &&
+        ev.date === show.date &&
+        ev.slots.some((s) => s.assignedMusicianId === show.musicianId)
+    );
+    if (matchingEv) {
+      const eff = getEffectiveEventStatus(matchingEv);
+      if (eff === 'archivado' || eff === 'cancelada') return false;
+    }
     return true;
   });
 
@@ -131,7 +155,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     if (bid.retracted) return false;
     if (bid.status !== 'pendiente_bar' && bid.status !== 'contraoferta_musico') return false;
     const ev = eventProposals.find((e) => e.id === bid.eventId);
-    if (!ev || (ev.status !== 'propuesta' && ev.status !== 'para_publicar')) return false;
+    if (!ev || isEventArchived(ev) || ev.status === 'cancelada') return false;
+    if (ev.status !== 'propuesta' && ev.status !== 'para_publicar') return false;
     const slot = ev.slots.find((s) => s.id === bid.slotId);
     if (slot?.status === 'confirmado') return false;
     const hasAcceptedInSlot = incomingBarBids.some(
@@ -145,6 +170,48 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     return !hasAcceptedInSlot;
   };
   const pendingBarBidsCount = incomingBarBids.filter(isBarBidActionable).length;
+
+  const getBarBidBucket = (
+    bid: typeof incomingBarBids[number]
+  ): 'pendientes' | 'acordadas' | 'rechazadas' | 'archivadas' => {
+    const ev = eventProposals.find((e) => e.id === bid.eventId);
+    if (ev && (isEventArchived(ev) || ev.status === 'cancelada')) {
+      return 'archivadas';
+    }
+    if (bid.status === 'aceptada') return 'acordadas';
+    const hasAcceptedOther = incomingBarBids.some(
+      (other) =>
+        other.id !== bid.id &&
+        other.eventId === bid.eventId &&
+        other.slotId === bid.slotId &&
+        !other.retracted &&
+        other.status === 'aceptada'
+    );
+    const slot = ev?.slots.find((s) => s.id === bid.slotId);
+    const isEvPublished = ev?.status === 'publicada' || ev?.status === 'agotada';
+    if (
+      bid.status === 'rechazada' ||
+      hasAcceptedOther ||
+      slot?.status === 'confirmado' ||
+      isEvPublished
+    ) {
+      return 'rechazadas';
+    }
+    return 'pendientes';
+  };
+
+  const barBidCounts = {
+    todas: incomingBarBids.length,
+    pendientes: incomingBarBids.filter((b) => getBarBidBucket(b) === 'pendientes').length,
+    acordadas: incomingBarBids.filter((b) => getBarBidBucket(b) === 'acordadas').length,
+    rechazadas: incomingBarBids.filter((b) => getBarBidBucket(b) === 'rechazadas').length,
+    archivadas: incomingBarBids.filter((b) => getBarBidBucket(b) === 'archivadas').length,
+  };
+
+  const filteredBarBids =
+    barBidFilter === 'todas'
+      ? incomingBarBids
+      : incomingBarBids.filter((b) => getBarBidBucket(b) === barBidFilter);
 
   // Bar-only: legacy open-call applications scoped strictly to active Bar
   const incomingOpenCallApps = openCalls
@@ -163,10 +230,39 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const pendingMusicianCounterCount = mySlotBids.filter((b) => {
     if (b.retracted || b.status !== 'contraoferta_bar') return false;
     const ev = eventProposals.find((e) => e.id === b.eventId);
-    if (!ev || (ev.status !== 'propuesta' && ev.status !== 'para_publicar')) return false;
+    if (!ev || isEventArchived(ev) || ev.status === 'cancelada') return false;
+    if (ev.status !== 'propuesta' && ev.status !== 'para_publicar') return false;
     const slot = ev.slots.find((s) => s.id === b.slotId);
     return slot?.status !== 'confirmado';
   }).length;
+
+  const getMusicianBidBucket = (
+    bid: typeof mySlotBids[number]
+  ): 'pendientes' | 'contraoferta' | 'acordadas' | 'cerradas_archivadas' => {
+    const ev = eventProposals.find((e) => e.id === bid.eventId);
+    const isArchOrCancelled = Boolean(ev && (isEventArchived(ev) || ev.status === 'cancelada'));
+    if (isArchOrCancelled) return 'cerradas_archivadas';
+    if (!bid.retracted && bid.status === 'aceptada') return 'acordadas';
+    const isEvPublished = ev?.status === 'publicada' || ev?.status === 'agotada';
+    if (bid.retracted || bid.status === 'rechazada' || isEvPublished) {
+      return 'cerradas_archivadas';
+    }
+    if (bid.status === 'contraoferta_bar') return 'contraoferta';
+    return 'pendientes';
+  };
+
+  const musicianAppCounts = {
+    todas: mySlotBids.length,
+    pendientes: mySlotBids.filter((b) => getMusicianBidBucket(b) === 'pendientes').length,
+    contraoferta: mySlotBids.filter((b) => getMusicianBidBucket(b) === 'contraoferta').length,
+    acordadas: mySlotBids.filter((b) => getMusicianBidBucket(b) === 'acordadas').length,
+    cerradas_archivadas: mySlotBids.filter((b) => getMusicianBidBucket(b) === 'cerradas_archivadas').length,
+  };
+
+  const filteredMusicianBids =
+    musicianAppFilter === 'todas'
+      ? mySlotBids
+      : mySlotBids.filter((b) => getMusicianBidBucket(b) === musicianAppFilter);
   const myApplications = openCalls.flatMap((call) =>
     call.applications
       .filter((app) => app.musicianId === currentMusician?.id)
@@ -202,15 +298,16 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
         </div>
       </div>
 
-      {/* Role-strict sub-tabs switcher */}
+      {/* Role-strict sub-tabs switcher (unified surface & no awkward mobile wrapping) */}
       {isBar ? (
-        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs">
+        <div className="flex flex-wrap sm:flex-nowrap gap-1 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs">
           <button
+            type="button"
             onClick={() => setActiveSubTab('bar_bids')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'bar_bids'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <Users className="w-3.5 h-3.5 shrink-0" />
@@ -230,11 +327,12 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveSubTab('upcoming')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'upcoming'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <Calendar className="w-3.5 h-3.5 shrink-0" />
@@ -243,11 +341,12 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveSubTab('pending_reviews')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'pending_reviews'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <Star className="w-3.5 h-3.5 shrink-0" />
@@ -266,13 +365,14 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           </button>
         </div>
       ) : (
-        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs">
+        <div className="flex flex-wrap sm:flex-nowrap gap-1 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs">
           <button
+            type="button"
             onClick={() => setActiveSubTab('pending_reviews')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'pending_reviews'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <Star className="w-3.5 h-3.5 shrink-0" />
@@ -291,11 +391,12 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveSubTab('upcoming')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'upcoming'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <Calendar className="w-3.5 h-3.5 shrink-0" />
@@ -304,11 +405,12 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveSubTab('applications')}
-            className={`flex-1 py-2 px-1 sm:px-2 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all ${
+            className={`flex-1 min-w-fit py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
               activeSubTab === 'applications'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5 shrink-0" />
@@ -336,20 +438,54 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
             Propuestas recibidas de músicos y bandas para tocar en tus fechas creadas ({currentVenue?.name || 'Tu Bar'}):
           </div>
 
-          {incomingBarBids.length === 0 && incomingOpenCallApps.length === 0 ? (
+          {/* Bar Bid Status Filter */}
+          <div className="flex flex-wrap gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs font-bold">
+            {(
+              [
+                { id: 'todas', label: `Todas (${barBidCounts.todas})` },
+                { id: 'pendientes', label: `Pendientes (${barBidCounts.pendientes})` },
+                { id: 'acordadas', label: `Acordadas (${barBidCounts.acordadas})` },
+                { id: 'rechazadas', label: `Cerradas / Rechazadas (${barBidCounts.rechazadas})` },
+                { id: 'archivadas', label: `Archivadas (${barBidCounts.archivadas})` },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                data-testid={`bar-bids-filter-${f.id}`}
+                onClick={() => setBarBidFilter(f.id)}
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
+                  barBidFilter === f.id
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                    : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {filteredBarBids.length === 0 && (barBidFilter !== 'todas' || incomingOpenCallApps.length === 0) ? (
             <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
               <Users className="w-8 h-8 text-amber-400 mx-auto mb-1" />
-              <p className="text-slate-200 font-bold">Todavía no recibiste postulaciones de músicos.</p>
+              <p className="text-slate-200 font-bold">
+                {incomingBarBids.length === 0
+                  ? 'Todavía no recibiste postulaciones de músicos.'
+                  : 'No hay postulaciones en este estado.'}
+              </p>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Creá o abrí una fecha en la pestaña "Mis Eventos" para que bandas y solistas puedan postularse a tus horarios.
+                {incomingBarBids.length === 0
+                  ? 'Creá o abrí una fecha en la pestaña "Mis Eventos" para que bandas y solistas puedan postularse a tus horarios.'
+                  : 'Cambiá el filtro superior para ver propuestas en otros estados.'}
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {incomingBarBids.map((bid) => {
+              {filteredBarBids.map((bid) => {
                 const event = eventProposals.find((e) => e.id === bid.eventId);
                 const slot = event?.slots.find((s) => s.id === bid.slotId);
                 const isCounteringThis = counterInputId === bid.id;
+                const bidLastAction = getBidLastActionInfo(bid, event);
                 const hasAcceptedOtherInSlot = incomingBarBids.some(
                   (b) =>
                     b.id !== bid.id &&
@@ -358,19 +494,22 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     !b.retracted &&
                     b.status === 'aceptada'
                 );
+                const isArchivedEv = Boolean(event && isEventArchived(event));
+                const isCancelledEv = event?.status === 'cancelada';
                 const isEventClosedForNeg =
+                  isArchivedEv ||
+                  isCancelledEv ||
                   event?.status === 'publicada' ||
-                  event?.status === 'agotada' ||
-                  event?.status === 'cancelada';
+                  event?.status === 'agotada';
 
                 return (
                   <div
                     key={bid.id}
                     className={`p-4 sm:p-5 rounded-2xl border text-xs space-y-3 shadow-md ${
-                      bid.status === 'aceptada'
+                      bid.status === 'aceptada' && !isArchivedEv && !isCancelledEv
                         ? 'bg-emerald-950/20 border-emerald-500/40'
                         : bid.status === 'rechazada' || isEventClosedForNeg || hasAcceptedOtherInSlot
-                        ? 'bg-slate-900/60 border-slate-800 opacity-75'
+                        ? 'bg-slate-900/60 border-slate-800 opacity-80'
                         : 'bg-slate-900/90 border-slate-800'
                     }`}
                   >
@@ -407,9 +546,11 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                         </span>
                         <span
                           className={`mt-1 px-2.5 py-0.5 rounded-full font-bold text-[10px] inline-block uppercase border ${
-                            bid.status === 'aceptada'
+                            bid.status === 'aceptada' && !isArchivedEv && !isCancelledEv
                               ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                              : bid.status === 'rechazada' || isEventClosedForNeg || hasAcceptedOtherInSlot || slot?.status === 'confirmado'
+                              : isArchivedEv
+                              ? 'bg-slate-800 text-slate-300 border-slate-600'
+                              : isCancelledEv || bid.status === 'rechazada' || isEventClosedForNeg || hasAcceptedOtherInSlot || slot?.status === 'confirmado'
                               ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
                               : bid.status === 'contraoferta_bar'
                               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
@@ -419,7 +560,15 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                           }`}
                         >
                           {bid.status === 'aceptada'
-                            ? `Aceptada • Acordada`
+                            ? isArchivedEv
+                              ? 'Acordada • Archivada'
+                              : isCancelledEv
+                              ? 'Cancelada'
+                              : 'Aceptada • Acordada'
+                            : isArchivedEv
+                            ? 'Archivada • Solo lectura'
+                            : isCancelledEv
+                            ? 'Evento Cancelado'
                             : bid.status === 'rechazada'
                             ? 'Rechazada'
                             : isEventClosedForNeg
@@ -433,6 +582,22 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             : 'Pendiente de Revisión'}
                         </span>
                       </div>
+                    </div>
+
+                    <div
+                      data-testid={`bar-bid-last-action-${bid.id}`}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800/90 text-[11px] text-slate-300"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="break-words">
+                          <strong className="text-slate-200">Último cambio:</strong>{' '}
+                          <span className="text-amber-300 font-semibold">{bidLastAction.actorLabel}</span> — {bidLastAction.summary}
+                        </span>
+                      </span>
+                      <span className="text-slate-400 font-mono text-[10px] shrink-0">
+                        {bidLastAction.formattedTime}
+                      </span>
                     </div>
 
                     <div className="p-2.5 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1 text-[11px]">
@@ -526,6 +691,8 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                           b.status === 'aceptada'
                       );
                       const canBarNegotiate =
+                        !isArchivedEv &&
+                        !isCancelledEv &&
                         bid.status !== 'aceptada' &&
                         bid.status !== 'rechazada' &&
                         !bid.retracted &&
@@ -671,7 +838,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                                     bid.id,
                                     'counter',
                                     numericAmount,
-                                    counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el bar.' : 'Contraoferta enviada por el bar.'),
+                                    counterNote || (counterCachetType === 'a_la_gorra' ? 'Contrapropuesta a la gorra enviada por el bar.' : 'Contrapropuesta enviada por el bar.'),
                                     { cachetType: counterCachetType }
                                   );
                                   if (!res.ok) {
@@ -969,7 +1136,34 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
       {!isBar && activeSubTab === 'applications' && (
         <div className="space-y-4">
           <div className="text-xs text-slate-400">
-            Seguimiento de las propuestas de fecha que enviaste a bares de Buenos Aires (recordatorios, retracciones y contraofertas):
+            Seguimiento de las propuestas de fecha que enviaste a bares de Buenos Aires (estado, último cambio, recordatorios y contraofertas):
+          </div>
+
+          {/* Musician Status Filter */}
+          <div className="flex flex-wrap gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-[11px] sm:text-xs font-bold">
+            {(
+              [
+                { id: 'todas', label: `Todas (${musicianAppCounts.todas})` },
+                { id: 'pendientes', label: `Pendientes (${musicianAppCounts.pendientes})` },
+                { id: 'contraoferta', label: `Contraoferta Bar (${musicianAppCounts.contraoferta})` },
+                { id: 'acordadas', label: `Acordadas (${musicianAppCounts.acordadas})` },
+                { id: 'cerradas_archivadas', label: `Cerradas / Archivadas (${musicianAppCounts.cerradas_archivadas})` },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                data-testid={`musician-bids-filter-${f.id}`}
+                onClick={() => setMusicianAppFilter(f.id)}
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
+                  musicianAppFilter === f.id
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                    : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/70'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
           {/* Feedback toast for retraction */}
@@ -991,41 +1185,53 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
             </div>
           )}
 
-          {mySlotBids.length === 0 && myApplications.length === 0 ? (
+          {filteredMusicianBids.length === 0 && (musicianAppFilter !== 'todas' || myApplications.length === 0) ? (
             <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 p-6 space-y-2">
-              <p className="text-slate-300 font-medium">No enviaste propuestas todavía.</p>
+              <p className="text-slate-300 font-medium">
+                {mySlotBids.length === 0
+                  ? 'No enviaste propuestas todavía.'
+                  : 'No tenés postulaciones en este estado.'}
+              </p>
               <p className="text-xs text-slate-500">
-                Mirá la pestaña de "Convocatorias" y postulate a los horarios de show que te interesen.
+                {mySlotBids.length === 0
+                  ? 'Mirá la pestaña de "Convocatorias" y postulate a los horarios de show que te interesen.'
+                  : 'Probá seleccionando otro filtro arriba para revisar tus postulaciones.'}
               </p>
             </div>
           ) : (
             <div className="space-y-3">
               {/* DeGira Slot Bids */}
-              {mySlotBids.map((bid) => {
+              {filteredMusicianBids.map((bid) => {
                 const event = eventProposals.find((e) => e.id === bid.eventId);
                 const slot = event?.slots.find((s) => s.id === bid.slotId);
                 const eventStartTime = slot?.startTime || event?.startTime || '21:00';
-                const eventDateStr = event?.date || '2026-11-28';
+                const eventDateStr = event?.date || offsetIsoDate(0);
                 const eventDateTime = new Date(`${eventDateStr}T${eventStartTime}`).getTime();
                 const now = Date.now();
                 const hoursRemaining = (eventDateTime - now) / (1000 * 60 * 60);
+                const isArchivedEv = Boolean(event && isEventArchived(event));
+                const isCancelledEv = event?.status === 'cancelada';
                 const eventAllowsAction =
-                  !event || event.status === 'propuesta' || event.status === 'para_publicar';
+                  !event || (!isArchivedEv && (event.status === 'propuesta' || event.status === 'para_publicar'));
                 const isClosedByPublish =
                   !bid.retracted &&
                   bid.status !== 'aceptada' &&
                   bid.status !== 'rechazada' &&
                   !eventAllowsAction;
+                const isReadOnlyEv = isArchivedEv || isCancelledEv;
                 const canRetract =
+                  !isReadOnlyEv &&
                   hoursRemaining >= 24 &&
                   !bid.retracted &&
                   bid.status !== 'rechazada' &&
                   !isClosedByPublish;
+                const bidLastAction = getBidLastActionInfo(bid, event);
 
                 // Check overlapping time clash with another active bid or confirmed show of this musician
                 const hasClash =
                   isActiveSlotBid(bid) &&
                   !isClosedByPublish &&
+                  !isReadOnlyEv &&
                   Boolean(event) &&
                   Boolean(slot) &&
                   detectMusicianDateClashes({
@@ -1041,10 +1247,10 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                   <div
                     key={bid.id}
                     className={`bg-slate-900/90 border rounded-2xl p-4 sm:p-5 space-y-3 shadow-md ${
-                      bid.status === 'aceptada'
+                      bid.status === 'aceptada' && !isReadOnlyEv
                         ? 'border-emerald-500/40'
-                        : bid.retracted || isClosedByPublish
-                        ? 'border-slate-800 opacity-65'
+                        : bid.retracted || isClosedByPublish || isReadOnlyEv
+                        ? 'border-slate-800 opacity-75'
                         : hasClash
                         ? 'border-amber-500/40'
                         : 'border-slate-800'
@@ -1075,11 +1281,13 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                       <div>
                         <span
                           className={`px-2.5 py-1 rounded-full font-bold text-[10px] inline-block uppercase border ${
-                            bid.status === 'aceptada'
+                            bid.status === 'aceptada' && !isReadOnlyEv
                               ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                              : isArchivedEv
+                              ? 'bg-slate-800 text-slate-300 border-slate-600'
                               : bid.retracted
                               ? 'bg-slate-800 text-slate-400 border-slate-700'
-                              : isClosedByPublish || bid.status === 'rechazada'
+                              : isCancelledEv || isClosedByPublish || bid.status === 'rechazada'
                               ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
                               : bid.status === 'contraoferta_bar'
                               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse'
@@ -1089,7 +1297,15 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                           {bid.retracted
                             ? 'Retractada por vos'
                             : bid.status === 'aceptada'
-                            ? 'Aceptada • Horario Acordado'
+                            ? isArchivedEv
+                              ? 'Acordada • Archivada'
+                              : isCancelledEv
+                              ? 'Evento Cancelado'
+                              : 'Aceptada • Horario Acordado'
+                            : isArchivedEv
+                            ? 'Archivada • Solo lectura'
+                            : isCancelledEv
+                            ? 'Evento Cancelado'
                             : isClosedByPublish
                             ? 'Cerrada (Evento publicado)'
                             : bid.status === 'contraoferta_bar'
@@ -1101,6 +1317,22 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             : 'Pendiente de Respuesta'}
                         </span>
                       </div>
+                    </div>
+
+                    <div
+                      data-testid={`musician-bid-last-action-${bid.id}`}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800/90 text-[11px] text-slate-300"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="break-words">
+                          <strong className="text-slate-200">Último cambio:</strong>{' '}
+                          <span className="text-amber-300 font-semibold">{bidLastAction.actorLabel}</span> — {bidLastAction.summary}
+                        </span>
+                      </span>
+                      <span className="text-slate-400 font-mono text-[10px] shrink-0">
+                        {bidLastAction.formattedTime}
+                      </span>
                     </div>
 
                     {/* Schedule & Cachet info */}
@@ -1136,7 +1368,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                     </div>
 
                     {/* Reminder, Counter-offer & Retract Actions */}
-                    {!bid.retracted && bid.status !== 'rechazada' && !isClosedByPublish && (
+                    {!bid.retracted && bid.status !== 'rechazada' && !isClosedByPublish && !isReadOnlyEv && (
                       <div className="pt-2 border-t border-slate-800/80 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           {/* Reminder Button */}
@@ -1352,7 +1584,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                                   bid.id,
                                   'counter',
                                   numericAmount,
-                                  counterNote || (counterCachetType === 'a_la_gorra' ? 'Contraoferta a la gorra enviada por el músico.' : 'Contraoferta enviada por el músico.'),
+                                  counterNote || (counterCachetType === 'a_la_gorra' ? 'Contrapropuesta a la gorra enviada por el músico.' : 'Contrapropuesta enviada por el músico.'),
                                   { cachetType: counterCachetType, musiciansCount: counterMusiciansCount }
                                 );
                                 if (!res.ok) {

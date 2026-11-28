@@ -227,7 +227,7 @@ export interface PublicUserProfile {
 
 export type CachetMode = 'fijo' | 'a_la_gorra';
 
-export type EventStatus = 'propuesta' | 'cancelada' | 'para_publicar' | 'publicada' | 'agotada';
+export type EventStatus = 'propuesta' | 'cancelada' | 'para_publicar' | 'publicada' | 'agotada' | 'archivado';
 
 export interface EventSlot {
   id: string;
@@ -275,6 +275,10 @@ export interface EventProposal {
   cachetPaid?: boolean; // liquidación de cachet a músicos
   cachetPaidAt?: string;
   feedbackSentAt?: string; // disparo automático 1h post evento
+  cancelledAt?: string;
+  lastActionAt?: string;
+  lastActionSummary?: string;
+  lastActionActor?: string;
   createdAt: string;
 }
 

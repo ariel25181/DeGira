@@ -20,6 +20,7 @@ import {
 import { useApp } from '../context/AppContext.tsx';
 import { LiveShowConfirmed, EventProposal, MusicGenre } from '../types/index.ts';
 import { formatARS, formatDateBA, getConfirmedSlotLineup } from '../utils/bookingLogic.ts';
+import { isEventArchived } from '../utils/slotBidding.ts';
 
 interface CatalogViewProps {
   onSelectShow?: (show: LiveShowConfirmed) => void;
@@ -82,10 +83,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   const [inspectingVenueEvent, setInspectingVenueEvent] = useState<EventProposal | null>(null);
   const [reviewModalTab, setReviewModalTab] = useState<'venue_reviews' | 'last_10_events' | 'musician_reviews'>('venue_reviews');
 
-  // Cartelera del público general: SOLO eventos en estado 'publicada' o 'agotada'
+  // Cartelera del público general: SOLO eventos activos en estado 'publicada' o 'agotada' (nunca archivados ni cancelados)
   const publicEvents = eventProposals.filter((ev) => {
-    // Only published or agotada
-    const isPublicState = ev.status === 'publicada' || ev.status === 'agotada';
+    const isPublicState = (ev.status === 'publicada' || ev.status === 'agotada') && !isEventArchived(ev);
     if (!isPublicState) return false;
 
     // Filters

@@ -27,11 +27,9 @@ import {
   PublicUserProfile,
   SpectatorReservation,
   EventProposal,
-  EventStatus,
   EventSlot,
   EventRider,
   MusicianSlotBid,
-  SlotBidHistoryEntry,
   PublicEventReservation,
   ReservationStatus,
   EventReview360,
@@ -40,7 +38,7 @@ import {
   SpectatorBenefit,
   CachetMode,
 } from '../types/index.ts';
-import { calculateNewRating, calculateNewBreakdown, formatCachet } from '../utils/bookingLogic.ts';
+import { calculateNewRating, calculateNewBreakdown, formatCachet, offsetIsoDate } from '../utils/bookingLogic.ts';
 import {
   applyPaymentConfirmationToEvent,
   restoreCapacityOnReservationRelease,
@@ -51,13 +49,14 @@ import {
 } from '../utils/reviewEligibility.ts';
 import {
   canSubmitBidForSlot,
-  applySlotAcceptToProposal,
-  applySlotReleaseToProposal,
   isActiveSlotBid,
+  isEventArchived,
+  archivePastEvents,
   applyBidSubmissionTransition,
   applyBidResponseTransition,
   applyBidRetractionTransition,
   applyPublishEventTransition,
+  applyCancelEventTransition,
   makeUniqueId,
 } from '../utils/slotBidding.ts';
 import { supabase } from '../lib/supabaseClient.ts';
@@ -96,10 +95,7 @@ import {
   sendNegotiationUpdateEmailToMusician,
   sendReservationCreatedEmail,
   sendReservationExpiredEmail,
-  getSentEmails,
-  replaceSentEmails,
 } from '../lib/emailService.ts';
-import type { QaAppBridge } from '../qaTool/types.ts'; // [QA_TOOL_REMOVABLE]
 import { sendPushNotification } from '../lib/push.ts';
 import { clearActiveSession, saveActiveSession } from '../lib/degiraSession.ts';
 import { TestAccount } from '../data/testAccounts.ts';
@@ -189,6 +185,7 @@ interface AppContextType {
   updateEventProposal: (id: string, updates: Partial<EventProposal>) => void;
   publishEventProposal: (id: string) => void;
   approveAndPublishEvent: (proposalId: string) => void;
+  cancelEventProposal: (eventId: string, reason?: string) => { ok: boolean; message?: string };
   addNewVenue: (venueData: Omit<VenueProfile, 'id' | 'rating' | 'reviewCount' | 'reviews' | 'ratingBreakdown'>) => VenueProfile;
   saveVenueRiderTemplate: (venueId: string, template: EventRider) => void;
   liquidateMusicianCachet: (proposalId: string) => void;
@@ -243,7 +240,6 @@ interface AppContextType {
   cloudSyncError: string | null;
   connectCloudWithGoogle: () => Promise<boolean>;
   disconnectCloud: () => Promise<void>;
-  qaBridge?: QaAppBridge; // [QA_TOOL_REMOVABLE]
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -384,11 +380,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.map((ev: EventProposal) => normalizeCloudEventProposal(ev));
+          const normalized = parsed.map((ev: EventProposal) => normalizeCloudEventProposal(ev));
+          return archivePastEvents(normalized).events;
         }
       } catch {}
     }
-    return INITIAL_EVENT_PROPOSALS;
+    return archivePastEvents(INITIAL_EVENT_PROPOSALS).events;
   });
 
   const [slotBids, setSlotBids] = useState<MusicianSlotBid[]>(() => {
@@ -437,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         badge: 'Espectador Frecuente',
         promoCode: 'DEGIRA-BIENVENIDA-10',
         discountPercent: 10,
-        earnedAt: '2026-11-01',
+        earnedAt: offsetIsoDate(-10),
       },
     ];
   });
@@ -454,7 +451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: 'notif-1',
         title: '¡Nueva postulación recibida!',
-        message: 'Músico Test 1 se postuló para tu fecha del 20 de Noviembre en Bar Test 1.',
+        message: 'Músico Test 1 se postuló para tu próxima fecha en Bar Test 1.',
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
@@ -464,7 +461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: 'notif-2',
         title: '¡Propuesta directa de fecha!',
-        message: 'Bar Test 1 te envió una oferta para tocar el 21 de Noviembre.',
+        message: 'Bar Test 1 te envió una oferta para tocar próximamente.',
         timestamp: 'Hace 4 horas',
         read: false,
         type: 'offer',
@@ -483,13 +480,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const slotBidsRef = useRef<MusicianSlotBid[]>(slotBids);
   const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
   const reviews360Ref = useRef<EventReview360[]>(reviews360);
-  // [QA_TOOL_REMOVABLE] Sandbox flag to keep synthetic QA cohorts strictly off Firestore & localStorage
-  const [isQaSandboxActive, setIsQaSandboxActiveState] = useState<boolean>(false);
-  const qaSandboxActiveRef = useRef<boolean>(false);
-  const setQaSandboxActive = (active: boolean) => {
-    qaSandboxActiveRef.current = active;
-    setIsQaSandboxActiveState(active);
-  };
 
   // Sync to localStorage & refs
   useEffect(() => {
@@ -556,24 +546,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             unsubCloud = subscribeToCloudState({
               uid: user.uid,
               onVenues: (cloudVenues) => {
-                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const normalizedCloud = cloudVenues.map(normalizeCloudVenue);
                 setVenues((prev) => mergeByIdWithCloudPriority(prev, normalizedCloud));
               },
               onEventProposals: (cloudEvents) => {
-                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const normalizedCloud = cloudEvents.map(normalizeCloudEventProposal);
-                const nextEvents = mergeEventProposalsMonotonic(
+                const merged = mergeEventProposalsMonotonic(
                   eventProposalsRef.current,
                   normalizedCloud,
                   slotBidsRef.current
                 );
+                const { events: nextEvents, archivedEvents } = archivePastEvents(merged);
                 eventProposalsRef.current = nextEvents;
                 setEventProposals(nextEvents);
+                if (archivedEvents.length > 0) {
+                  archivedEvents.forEach((archivedEv) => {
+                    syncEventProposalBarUpdate(
+                      archivedEv.id,
+                      {
+                        status: 'archivado',
+                        lastActionAt: archivedEv.lastActionAt,
+                        lastActionActor: archivedEv.lastActionActor,
+                        lastActionSummary: archivedEv.lastActionSummary,
+                      },
+                      archivedEv,
+                      user.uid
+                    ).catch(() => {});
+                  });
+                }
                 setCloudSyncStatus('connected');
               },
               onSlotBids: (cloudBids) => {
-                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 const nextBids = mergeSlotBidsMonotonic(slotBidsRef.current, cloudBids);
                 slotBidsRef.current = nextBids;
                 setSlotBids(nextBids);
@@ -582,15 +585,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   eventProposalsRef.current,
                   nextBids
                 );
-                eventProposalsRef.current = reconciledEvents;
-                setEventProposals(reconciledEvents);
+                const { events: nextEvents } = archivePastEvents(reconciledEvents);
+                eventProposalsRef.current = nextEvents;
+                setEventProposals(nextEvents);
               },
               onReservations: (cloudRes) => {
-                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 setPublicEventReservations((prev) => mergeByIdWithCloudPriority(prev, cloudRes));
               },
               onReviews360: (cloudRevs) => {
-                if (qaSandboxActiveRef.current) return; // [QA_TOOL_REMOVABLE]
                 setReviews360((prev) => mergeByIdWithCloudPriority(prev, cloudRevs));
               },
             });
@@ -1308,19 +1310,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): EventProposal => {
     const codeNumber = Math.floor(1000 + Math.random() * 9000);
     const barTag = data.venueId === 'venue-2' ? 'BAR2' : data.venueId === 'venue-1' ? 'BAR1' : 'BAR';
+    const nowIso = new Date().toISOString();
     const newProposal: EventProposal = {
       ...data,
       id: makeUniqueId('ev'),
       eventCode: `DG-${barTag}-${codeNumber}`,
       remainingCapacity: data.totalCapacity,
       status: data.status || 'propuesta',
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
+      lastActionAt: nowIso,
+      lastActionActor: data.venueName,
+      lastActionSummary: 'Convocatoria abierta para músicos',
     };
     const nextEvents = [newProposal, ...eventProposalsRef.current];
     eventProposalsRef.current = nextEvents;
     setEventProposals(nextEvents);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncEventProposalCreate(newProposal, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
     }
 
@@ -1345,21 +1351,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = eventProposalsRef.current.find((ev) => ev.id === id);
     if (!target) return;
     if (currentVenue && target.venueId !== currentVenue.id) return;
+
+    const updateKeys = Object.keys(updates) as (keyof EventProposal)[];
+    const allowedPostShowKeys = new Set<keyof EventProposal>(['cachetPaid', 'cachetPaidAt', 'feedbackSentAt']);
+    const isStrictlyPostShowUpdate =
+      updateKeys.length > 0 && updateKeys.every((k) => allowedPostShowKeys.has(k));
+    if ((isEventArchived(target) || target.status === 'cancelada') && !isStrictlyPostShowUpdate) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const actorName = currentVenue?.name || target.venueName;
+    const derivedSummary =
+      updates.lastActionSummary ||
+      (updates.status === 'para_publicar'
+        ? 'Marcada como lista para publicar'
+        : updates.status === 'propuesta'
+        ? 'Pausada / devuelta a propuesta'
+        : updates.cachetPaid
+        ? 'Cachet liquidado a los músicos'
+        : updates.feedbackSentAt
+        ? 'Recordatorio post-show de calificación enviado'
+        : 'Actualización del evento');
+
+    const auditedUpdates: Partial<EventProposal> = {
+      ...updates,
+      lastActionAt: updates.lastActionAt || nowIso,
+      lastActionActor: updates.lastActionActor || actorName,
+      lastActionSummary: derivedSummary,
+    };
+
     const nextEvents = eventProposalsRef.current.map((ev) =>
-      ev.id === id ? { ...ev, ...updates } : ev
+      ev.id === id ? { ...ev, ...auditedUpdates } : ev
     );
     eventProposalsRef.current = nextEvents;
     setEventProposals(nextEvents);
-    if (firebaseUser && !qaSandboxActiveRef.current && target) {
+    if (firebaseUser && target) {
       syncEventProposalBarUpdate(
         id,
         {
-          ...(updates.slots ? { slots: updates.slots } : {}),
-          ...(updates.status ? { status: updates.status } : {}),
-          ...(updates.remainingCapacity !== undefined ? { remainingCapacity: updates.remainingCapacity } : {}),
-          ...(updates.cachetPaid !== undefined ? { cachetPaid: updates.cachetPaid } : {}),
-          ...(updates.cachetPaidAt !== undefined ? { cachetPaidAt: updates.cachetPaidAt } : {}),
-          ...(updates.feedbackSentAt !== undefined ? { feedbackSentAt: updates.feedbackSentAt } : {}),
+          ...(auditedUpdates.slots ? { slots: auditedUpdates.slots } : {}),
+          ...(auditedUpdates.status ? { status: auditedUpdates.status } : {}),
+          ...(auditedUpdates.remainingCapacity !== undefined ? { remainingCapacity: auditedUpdates.remainingCapacity } : {}),
+          ...(auditedUpdates.cachetPaid !== undefined ? { cachetPaid: auditedUpdates.cachetPaid } : {}),
+          ...(auditedUpdates.cachetPaidAt !== undefined ? { cachetPaidAt: auditedUpdates.cachetPaidAt } : {}),
+          ...(auditedUpdates.feedbackSentAt !== undefined ? { feedbackSentAt: auditedUpdates.feedbackSentAt } : {}),
+          ...(auditedUpdates.lastActionAt ? { lastActionAt: auditedUpdates.lastActionAt } : {}),
+          ...(auditedUpdates.lastActionActor ? { lastActionActor: auditedUpdates.lastActionActor } : {}),
+          ...(auditedUpdates.lastActionSummary ? { lastActionSummary: auditedUpdates.lastActionSummary } : {}),
         },
         target,
         firebaseUser.uid
@@ -1404,7 +1443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       Promise.all(
         transition.closedBids.map((closedBid) =>
           syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
@@ -1413,7 +1452,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .then(() =>
           syncEventProposalBarUpdate(
             id,
-            { status: 'publicada', slots: transition.updatedEvent.slots },
+            {
+              status: 'publicada',
+              slots: transition.updatedEvent.slots,
+              lastActionAt: transition.updatedEvent.lastActionAt,
+              lastActionActor: transition.updatedEvent.lastActionActor,
+              lastActionSummary: transition.updatedEvent.lastActionSummary,
+            },
             transition.updatedEvent,
             firebaseUser.uid
           )
@@ -1454,7 +1499,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVenues((prev) =>
       prev.map((v) => (v.id === venueId ? { ...v, defaultRiderTemplate: template } : v))
     );
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncVenueRiderUpdate(venueId, template).catch(() => setCloudSyncStatus('error'));
     }
     setNotifications((prev) => [
@@ -1475,21 +1520,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const liquidateMusicianCachet = (proposalId: string) => {
     const target = eventProposalsRef.current.find((ev) => ev.id === proposalId);
     const cachetPaidAt = new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
-    setEventProposals((prev) =>
-      prev.map((ev) =>
-        ev.id === proposalId
-          ? {
-              ...ev,
-              cachetPaid: true,
-              cachetPaidAt,
-            }
-          : ev
-      )
+    const nowIso = new Date().toISOString();
+    const actorName = currentVenue?.name || target?.venueName || 'Bar';
+    const lastActionSummary = 'Cachet liquidado a los músicos';
+    const nextEvents = eventProposalsRef.current.map((ev) =>
+      ev.id === proposalId
+        ? {
+            ...ev,
+            cachetPaid: true,
+            cachetPaidAt,
+            lastActionAt: nowIso,
+            lastActionActor: actorName,
+            lastActionSummary,
+          }
+        : ev
     );
-    if (firebaseUser && !qaSandboxActiveRef.current && target) {
+    eventProposalsRef.current = nextEvents;
+    setEventProposals(nextEvents);
+    if (firebaseUser && target) {
       syncEventProposalBarUpdate(
         proposalId,
-        { cachetPaid: true, cachetPaidAt },
+        {
+          cachetPaid: true,
+          cachetPaidAt,
+          lastActionAt: nowIso,
+          lastActionActor: actorName,
+          lastActionSummary,
+        },
         target,
         firebaseUser.uid
       ).catch(() => setCloudSyncStatus('error'));
@@ -1606,7 +1663,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncSlotBidCreate(transition.newBid, targetEvent, firebaseUser.uid)
         .then(() => {
           return syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid);
@@ -1674,7 +1731,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     slotBidsRef.current = nextBids;
     setSlotBids(nextBids);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncSlotBidMusicianUpdate(updatedBid, event, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -1730,7 +1787,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncSlotBidMusicianUpdate(transition.updatedBid, transition.event, firebaseUser.uid)
         .then(() => syncEventProposalSlotsAndStatus(transition.updatedEvent, firebaseUser.uid))
         .catch(() => setCloudSyncStatus('error'));
@@ -1830,7 +1887,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       const syncPromise =
         role === 'bar'
           ? Promise.all([
@@ -1852,7 +1909,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return role === 'bar'
               ? syncEventProposalBarUpdate(
                   updatedEvent.id,
-                  { slots: updatedEvent.slots, status: updatedEvent.status },
+                  {
+                    slots: updatedEvent.slots,
+                    status: updatedEvent.status,
+                    lastActionAt: updatedEvent.lastActionAt,
+                    lastActionActor: updatedEvent.lastActionActor,
+                    lastActionSummary: updatedEvent.lastActionSummary,
+                  },
                   updatedEvent,
                   firebaseUser.uid
                 )
@@ -1965,7 +2028,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       Promise.all(
         transition.closedBids.map((closedBid) =>
           syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
@@ -1974,7 +2037,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .then(() =>
           syncEventProposalBarUpdate(
             proposalId,
-            { status: 'publicada', slots: transition.updatedEvent.slots },
+            {
+              status: 'publicada',
+              slots: transition.updatedEvent.slots,
+              lastActionAt: transition.updatedEvent.lastActionAt,
+              lastActionActor: transition.updatedEvent.lastActionActor,
+              lastActionSummary: transition.updatedEvent.lastActionSummary,
+            },
             transition.updatedEvent,
             firebaseUser.uid
           )
@@ -2016,6 +2085,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const cancelEventProposal = (eventId: string, reason?: string): { ok: boolean; message?: string } => {
+    if (role !== 'bar') {
+      return { ok: false, message: 'Solo el bar anfitrión puede cancelar este evento.' };
+    }
+    const target = eventProposalsRef.current.find((e) => e.id === eventId);
+    if (!target) {
+      return { ok: false, message: 'Evento no encontrado.' };
+    }
+    if (currentVenue && target.venueId !== currentVenue.id) {
+      return { ok: false, message: 'No podés cancelar un evento de otro bar.' };
+    }
+
+    const transition = applyCancelEventTransition({
+      eventProposals: eventProposalsRef.current,
+      slotBids: slotBidsRef.current,
+      eventId,
+      actorVenueId: currentVenue?.id,
+      reason,
+    });
+    if (!transition.ok) {
+      return { ok: false, message: transition.message };
+    }
+
+    slotBidsRef.current = transition.slotBids;
+    setSlotBids(transition.slotBids);
+    eventProposalsRef.current = transition.eventProposals;
+    setEventProposals(transition.eventProposals);
+
+    if (firebaseUser) {
+      Promise.all(
+        transition.closedBids.map((closedBid) =>
+          syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
+        )
+      )
+        .then(() =>
+          syncEventProposalBarUpdate(
+            eventId,
+            {
+              status: 'cancelada',
+              cancelledAt: transition.updatedEvent.cancelledAt,
+              lastActionAt: transition.updatedEvent.lastActionAt,
+              lastActionActor: transition.updatedEvent.lastActionActor,
+              lastActionSummary: transition.updatedEvent.lastActionSummary,
+            },
+            transition.updatedEvent,
+            firebaseUser.uid
+          )
+        )
+        .catch(() => setCloudSyncStatus('error'));
+    }
+
+    const affectedMusicianIds = Array.from(
+      new Set([
+        ...target.slots.map((s) => s.assignedMusicianId).filter((id): id is string => Boolean(id)),
+        ...transition.closedBids.map((b) => b.musicianId),
+      ])
+    );
+
+    setNotifications((prev) => [
+      {
+        id: makeUniqueId('notif-cancel-bar'),
+        title: '🚫 Evento Cancelado',
+        message: `Cancelaste "${target.title}". Pasó a modo lectura y ya no acepta postulaciones ni reservas.`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'system',
+        targetRole: 'bar',
+        targetEntityId: target.venueId,
+      },
+      ...affectedMusicianIds.map((mId) => ({
+        id: makeUniqueId('notif-cancel-mus'),
+        title: '🚫 Evento Cancelado por el Bar',
+        message: `${target.venueName} canceló "${target.title}" (${target.date}).${reason?.trim() ? ` Motivo: ${reason.trim()}` : ''}`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'system' as const,
+        targetRole: 'musico' as const,
+        targetEntityId: mId,
+      })),
+      ...prev,
+    ]);
+
+    return { ok: true };
+  };
+
   const addNewVenue = (
     venueData: Omit<VenueProfile, 'id' | 'rating' | 'reviewCount' | 'reviews' | 'ratingBreakdown'>
   ): VenueProfile => {
@@ -2037,7 +2191,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVenues((prev) => [...prev, newVenue]);
     setActiveVenueId(newVenue.id);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncVenueCreate(newVenue, firebaseUser.uid).catch(() => setCloudSyncStatus('error'));
     }
 
@@ -2077,7 +2231,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       venueName: event?.venueName || 'Bar Test 1',
       venueAddress: event?.venueAddress || 'Honduras 4800',
       venueNeighborhood: event?.venueNeighborhood || 'Palermo Soho',
-      eventDate: event?.date || '2026-11-20',
+      eventDate: event?.date || offsetIsoDate(5),
       eventStartTime: event?.startTime || '21:00',
       eventEndTime: event?.endTime || '01:00',
       userId: currentPublicUser?.id || 'user-pub-1',
@@ -2092,7 +2246,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPublicEventReservations((prev) => [newReservation, ...prev]);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationCreate(newReservation, event, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2159,7 +2313,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser && !qaSandboxActiveRef.current && updatedResForCloud) {
+    if (firebaseUser && updatedResForCloud) {
       syncReservationSpectatorUpdate(updatedResForCloud).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2227,7 +2381,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationBarUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2291,7 +2445,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationSpectatorUpdate(updatedRes).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2353,7 +2507,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationBarUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2426,7 +2580,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((r) => (r.id === res.id ? updatedRes : r))
     );
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationBarUpdate(updatedRes).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2475,7 +2629,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    if (firebaseUser && !qaSandboxActiveRef.current && updatedEventForCloud) {
+    if (firebaseUser && updatedEventForCloud) {
       syncEventCapacityOrWaitlist(updatedEventForCloud, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
       );
@@ -2521,7 +2675,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setReviews360((prev) => [newRev, ...prev]);
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       const parentEvent = eventProposalsRef.current.find((e) => e.id === newRev.eventId);
       syncReview360Create(newRev, parentEvent, firebaseUser.uid).catch(() =>
         setCloudSyncStatus('error')
@@ -2567,7 +2721,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMusicianAvailabilities(INITIAL_MUSICIAN_AVAILABILITIES);
     setLiveShows(INITIAL_LIVE_SHOWS);
     setReservations(INITIAL_SPECTATOR_RESERVATIONS);
-    setEventProposals(INITIAL_EVENT_PROPOSALS);
+    const initialArchived = archivePastEvents(INITIAL_EVENT_PROPOSALS).events;
+    eventProposalsRef.current = initialArchived;
+    setEventProposals(initialArchived);
     setSlotBids(INITIAL_SLOT_BIDS);
     setPublicEventReservations(INITIAL_EVENT_RESERVATIONS);
     setReviews360(INITIAL_REVIEWS_360);
@@ -2576,7 +2732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: 'notif-1',
         title: '¡Nueva postulación recibida!',
-        message: 'Músico Test 1 se postuló para tu fecha del 20 de Noviembre en Bar Test 1.',
+        message: 'Músico Test 1 se postuló para tu próxima fecha en Bar Test 1.',
         timestamp: 'Hace 2 horas',
         read: false,
         type: 'application',
@@ -2645,7 +2801,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    if (firebaseUser && !qaSandboxActiveRef.current) {
+    if (firebaseUser) {
       syncReservationSpectatorUpdate(updatedRes)
         .then(() => {
           if (updatedEventForCloud) {
@@ -2792,12 +2948,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Chequeo periódico de feedback estrictamente 2hs post-evento
+  // Auto-archivado de eventos pasados & chequeo periódico de feedback 2hs post-evento
   useEffect(() => {
-    const checkFeedbackEligibility = () => {
+    const runLifecycleMaintenance = () => {
       const now = Date.now();
-      eventProposals.forEach((ev) => {
-        if ((ev.status === 'publicada' || ev.status === 'agotada') && !ev.feedbackSentAt) {
+      const { events: nextEvents, archivedEvents } = archivePastEvents(eventProposalsRef.current, now);
+      if (archivedEvents.length > 0) {
+        eventProposalsRef.current = nextEvents;
+        setEventProposals(nextEvents);
+        if (firebaseUser) {
+          archivedEvents.forEach((archivedEv) => {
+            syncEventProposalBarUpdate(
+              archivedEv.id,
+              {
+                status: 'archivado',
+                lastActionAt: archivedEv.lastActionAt,
+                lastActionActor: archivedEv.lastActionActor,
+                lastActionSummary: archivedEv.lastActionSummary,
+              },
+              archivedEv,
+              firebaseUser.uid
+            ).catch(() => {});
+          });
+        }
+      }
+
+      nextEvents.forEach((ev) => {
+        const hasConfirmedMusician = ev.slots.some((s) => Boolean(s.assignedMusicianId));
+        if (
+          (ev.status === 'publicada' || ev.status === 'agotada' || ev.status === 'archivado') &&
+          hasConfirmedMusician &&
+          !ev.feedbackSentAt
+        ) {
           const endDateTime = getEventEndTimestampMs(ev.date, ev.startTime, ev.endTime);
           if (Number.isFinite(endDateTime) && now >= endDateTime + REVIEW_UNLOCK_DELAY_MS) {
             triggerOneHourPostEventFeedback(ev.id);
@@ -2806,104 +2988,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     };
 
-    checkFeedbackEligibility();
-    const interval = setInterval(checkFeedbackEligibility, 30000);
+    runLifecycleMaintenance();
+    const interval = setInterval(runLifecycleMaintenance, 30000);
     return () => clearInterval(interval);
-  }, [eventProposals]);
+  }, [eventProposals, firebaseUser]);
 
   const logout = () => {
     clearActiveSession();
     setStoredUserName('');
-  };
-
-  // [QA_TOOL_REMOVABLE] Bridge for external src/qaTool/ overlay
-  const qaBridge: QaAppBridge = {
-    role,
-    activeBarAccountId: resolvedBarOwnerId,
-    activeVenueId,
-    activeMusicianId,
-    activePublicUserId,
-    userDisplayName,
-    venues,
-    musicians,
-    publicUsers,
-    eventProposals,
-    slotBids,
-    publicEventReservations,
-    reviews360,
-    rawNotifications: notifications,
-    isQaSandboxActive,
-    setQaSandboxActive,
-    switchActor: ({ role: nextRole, entityId, displayName, email }) => {
-      setRole(nextRole);
-      setStoredUserName(displayName);
-      if (nextRole === 'bar') {
-        setActiveBarAccountId(entityId);
-        setActiveVenueId(entityId);
-      } else if (nextRole === 'musico') {
-        setActiveMusicianId(entityId);
-      } else {
-        setActivePublicUserId(entityId);
-      }
-      saveActiveSession({
-        role: nextRole,
-        userName: displayName,
-        userEmail: email || `${entityId}@degira-qa.test`,
-        remember24h: true,
-      });
-    },
-    loadQaCohortIntoState: (artifacts) => {
-      setVenues(artifacts.venues);
-      setMusicians(artifacts.musicians);
-      setPublicUsers(artifacts.publicUsers);
-      setEventProposals(artifacts.eventProposals);
-      setSlotBids(artifacts.slotBids);
-      setPublicEventReservations(artifacts.publicEventReservations);
-      setReviews360(artifacts.reviews360);
-      setNotifications(artifacts.notifications);
-      replaceSentEmails(artifacts.emails);
-      if (artifacts.venues[0]) {
-        setRole('bar');
-        setActiveBarAccountId(artifacts.venues[0].id);
-        setActiveVenueId(artifacts.venues[0].id);
-        setStoredUserName(artifacts.venues[0].name);
-      }
-    },
-    captureSnapshot: () => ({
-      capturedAt: new Date().toISOString(),
-      role,
-      activeBarAccountId: resolvedBarOwnerId,
-      activeVenueId,
-      activeMusicianId,
-      activePublicUserId,
-      userDisplayName,
-      venues,
-      musicians,
-      publicUsers,
-      eventProposals,
-      slotBids,
-      publicEventReservations,
-      reviews360,
-      notifications,
-      emails: getSentEmails(),
-    }),
-    restoreSnapshot: (snapshot) => {
-      setRole(snapshot.role);
-      setActiveBarAccountId(snapshot.activeBarAccountId);
-      setActiveVenueId(snapshot.activeVenueId);
-      setActiveMusicianId(snapshot.activeMusicianId);
-      setActivePublicUserId(snapshot.activePublicUserId);
-      setStoredUserName(snapshot.userDisplayName);
-      setVenues(snapshot.venues);
-      setMusicians(snapshot.musicians);
-      setPublicUsers(snapshot.publicUsers);
-      setEventProposals(snapshot.eventProposals);
-      setSlotBids(snapshot.slotBids);
-      setPublicEventReservations(snapshot.publicEventReservations);
-      setReviews360(snapshot.reviews360);
-      setNotifications(snapshot.notifications);
-      replaceSentEmails(snapshot.emails);
-    },
   };
 
   return (
@@ -2957,6 +3049,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateEventProposal,
         publishEventProposal,
         approveAndPublishEvent,
+        cancelEventProposal,
         addNewVenue,
         saveVenueRiderTemplate,
         liquidateMusicianCachet,
@@ -2985,7 +3078,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cloudSyncError,
         connectCloudWithGoogle,
         disconnectCloud,
-        qaBridge,
       }}
     >
       {children}

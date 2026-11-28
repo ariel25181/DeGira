@@ -92,6 +92,7 @@ service cloud.firestore {
           'title', 'date', 'startTime', 'endTime', 'totalCapacity', 'remainingCapacity',
           'baseCachetARS', 'cachetType', 'ticketPriceARS', 'targetGenres', 'slots', 'rider', 'status',
           'eventCode', 'waitlist', 'cachetPaid', 'cachetPaidAt', 'feedbackSentAt',
+          'cancelledAt', 'lastActionAt', 'lastActionSummary', 'lastActionActor',
           'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
         ])
         && isValidId(data.id)
@@ -113,12 +114,16 @@ service cloud.firestore {
         && (!('targetGenres' in data) || isBoundedStringList(data.targetGenres, 12))
         && data.slots is list && data.slots.size() >= 1 && data.slots.size() <= 20 && data.slots[0] is map
         && data.rider is map
-        && data.status in ['propuesta', 'cancelada', 'para_publicar', 'publicada', 'agotada']
+        && data.status in ['propuesta', 'cancelada', 'para_publicar', 'publicada', 'agotada', 'archivado']
         && data.eventCode is string && data.eventCode.size() >= 3 && data.eventCode.size() <= 40
         && (!('waitlist' in data) || isBoundedStringList(data.waitlist, 100))
         && (!('cachetPaid' in data) || data.cachetPaid is bool)
         && isOptionalBoundedString(data, 'cachetPaidAt', 60)
         && isOptionalBoundedString(data, 'feedbackSentAt', 60)
+        && isOptionalBoundedString(data, 'cancelledAt', 60)
+        && isOptionalBoundedString(data, 'lastActionAt', 60)
+        && isOptionalBoundedString(data, 'lastActionSummary', 240)
+        && isOptionalBoundedString(data, 'lastActionActor', 140)
         && data.visibility == 'public'
         && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
         && data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 60
@@ -301,24 +306,39 @@ service cloud.firestore {
         && incoming().createdAtTimestamp == existing().createdAtTimestamp
         && incoming().updatedAtTimestamp == request.time
         && (
-          // Action 1: Bar Owner or shared test Bar Account manages event
+          // Action 1: Bar Owner or shared test Bar Account manages active event (including archiving/cancelling)
           (
-            (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId) || existing().visibility == 'public')
+            existing().status != 'archivado'
+            && (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId) || existing().visibility == 'public')
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'slots', 'status', 'remainingCapacity', 'cachetPaid', 'cachetPaidAt',
-              'feedbackSentAt', 'updatedAtTimestamp'
+              'feedbackSentAt', 'cancelledAt', 'lastActionAt', 'lastActionSummary',
+              'lastActionActor', 'updatedAtTimestamp'
             ])
           )
           ||
-          // Action 2: Musician bid/retract syncs slot negotiation status (cannot self-publish, cancel, or add/remove slots)
+          // Action 1b: Bar post-show settlement/feedback on already-archived event (strictly read-only slots/status/capacity)
           (
-            (
+            existing().status == 'archivado'
+            && incoming().status == 'archivado'
+            && (existing().ownerUid == request.auth.uid || isDemoVenueId(existing().venueId) || existing().visibility == 'public')
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'cachetPaid', 'cachetPaidAt', 'feedbackSentAt', 'lastActionAt',
+              'lastActionSummary', 'lastActionActor', 'updatedAtTimestamp'
+            ])
+          )
+          ||
+          // Action 2: Musician bid/retract syncs slot negotiation status (cannot self-publish, cancel, archive, or mutate archived events)
+          (
+            existing().status != 'archivado'
+            && (
               (existing().status in ['propuesta', 'para_publicar'] && incoming().status in ['propuesta', 'para_publicar'])
               || (existing().status == 'publicada' && incoming().status in ['propuesta', 'publicada'])
             )
             && incoming().slots.size() == existing().slots.size()
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'slots', 'status', 'updatedAtTimestamp'
+              'slots', 'status', 'lastActionAt', 'lastActionSummary',
+              'lastActionActor', 'updatedAtTimestamp'
             ])
           )
           ||
@@ -370,7 +390,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().createdAtTimestamp == existing().createdAtTimestamp
         && incoming().updatedAtTimestamp == request.time
-        && get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.status != 'cancelada'
+        && !(get(/databases/$(database)/documents/eventProposals/$(existing().eventId)).data.status in ['cancelada', 'archivado'])
         && (
           // Action 1: Musician updates / sends reminder / counters / retracts own bid
           // Musician can only set 'aceptada' if replying to a Bar counter-offer ('contraoferta_bar')

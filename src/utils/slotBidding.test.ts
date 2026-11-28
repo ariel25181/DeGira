@@ -5,14 +5,20 @@ import {
   applyBidResponseTransition,
   applyBidRetractionTransition,
   applyBidSubmissionTransition,
+  applyCancelEventTransition,
   applyPublishEventTransition,
   applySlotAcceptToProposal,
   applySlotReleaseToProposal,
+  archivePastEvents,
   canSubmitBidForSlot,
   detectMusicianDateClashes,
   doTimeRangesOverlap,
+  getBidLastActionInfo,
+  getEffectiveEventStatus,
+  getEventLastActionInfo,
   getSlotDisplayState,
   isBidVisibleToViewer,
+  isEventArchived,
   isEventVisibleInConvocatorias,
   validateRespondToSlotBid,
   validateRetractSlotBid,
@@ -1732,6 +1738,201 @@ test('52. applyPublishEventTransition closes unaccepted active bids on publish a
   });
   assert.equal(noConfRes.ok, false);
 });
+
+test('53. isEventArchived & getEffectiveEventStatus detect past events while preserving cancelada', () => {
+  const pastEv = makeProposal({ id: 'ev-past', date: '2026-10-01', startTime: '20:00', endTime: '23:30', status: 'publicada' });
+  const futureEv = makeProposal({ id: 'ev-future', date: '2099-05-10', startTime: '20:00', endTime: '23:30', status: 'propuesta' });
+  const cancelledPastEv = makeProposal({ id: 'ev-cancel-past', date: '2026-10-01', startTime: '20:00', endTime: '23:30', status: 'cancelada' });
+
+  const nowMs = new Date(2026, 10, 28, 12, 0, 0).getTime(); // Nov 28, 2026
+  assert.equal(isEventArchived(pastEv, nowMs), true);
+  assert.equal(getEffectiveEventStatus(pastEv, nowMs), 'archivado');
+
+  assert.equal(isEventArchived(futureEv, nowMs), false);
+  assert.equal(getEffectiveEventStatus(futureEv, nowMs), 'propuesta');
+
+  // Cancelled event stays cancelada even if its scheduled date is in the past
+  assert.equal(isEventArchived(cancelledPastEv, nowMs), false);
+  assert.equal(getEffectiveEventStatus(cancelledPastEv, nowMs), 'cancelada');
+});
+
+test('54. archivePastEvents transitions past active events to archivado with audit metadata without touching future or cancelada', () => {
+  const pastActive = makeProposal({ id: 'ev-past-open', date: '2026-10-10', startTime: '20:00', endTime: '23:00', status: 'propuesta' });
+  const pastPub = makeProposal({ id: 'ev-past-pub', date: '2026-10-12', startTime: '21:00', endTime: '01:00', status: 'publicada' });
+  const futureActive = makeProposal({ id: 'ev-fut', date: '2099-06-15', startTime: '21:00', endTime: '00:00', status: 'propuesta' });
+  const cancelled = makeProposal({ id: 'ev-can', date: '2026-10-05', startTime: '20:00', endTime: '23:00', status: 'cancelada' });
+
+  const nowMs = new Date(2026, 10, 28, 12, 0, 0).getTime();
+  const nowIso = new Date(nowMs).toISOString();
+  const res = archivePastEvents([pastActive, pastPub, futureActive, cancelled], nowMs, nowIso);
+
+  assert.equal(res.archivedEvents.length, 2);
+  assert.equal(res.events.find((e) => e.id === 'ev-past-open')?.status, 'archivado');
+  assert.equal(res.events.find((e) => e.id === 'ev-past-pub')?.status, 'archivado');
+  assert.equal(res.events.find((e) => e.id === 'ev-past-open')?.lastActionActor, 'Sistema DeGira');
+  assert.match(res.events.find((e) => e.id === 'ev-past-open')?.lastActionSummary || '', /archivado/i);
+  assert.equal(res.events.find((e) => e.id === 'ev-fut')?.status, 'propuesta');
+  assert.equal(res.events.find((e) => e.id === 'ev-can')?.status, 'cancelada');
+});
+
+test('55. applyCancelEventTransition sets cancelada, closes active bids with history, and enforces ownership/status guards', () => {
+  const ev = makeProposal({ id: 'ev-to-cancel', date: '2099-06-15', status: 'para_publicar' });
+  const archEv = makeProposal({ id: 'ev-arch', date: '2026-01-10', status: 'archivado' });
+  const bids: MusicianSlotBid[] = [
+    makeBid({ id: 'b-act', eventId: 'ev-to-cancel', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' }),
+    makeBid({ id: 'b-pend', eventId: 'ev-to-cancel', slotId: 'slot-2', musicianId: 'mus-2', status: 'pendiente_bar' }),
+    makeBid({ id: 'b-rej', eventId: 'ev-to-cancel', slotId: 'slot-3', musicianId: 'mus-3', status: 'rechazada' }),
+  ];
+
+  // Wrong venue cannot cancel
+  const wrongVenue = applyCancelEventTransition({
+    eventProposals: [ev, archEv],
+    slotBids: bids,
+    eventId: 'ev-to-cancel',
+    actorVenueId: 'venue-2',
+  });
+  assert.equal(wrongVenue.ok, false);
+
+  // Archived event cannot be cancelled
+  const onArchived = applyCancelEventTransition({
+    eventProposals: [ev, archEv],
+    slotBids: bids,
+    eventId: 'ev-arch',
+    actorVenueId: 'venue-1',
+  });
+  assert.equal(onArchived.ok, false);
+
+  // Valid cancellation
+  const nowMs = new Date(2026, 10, 28, 15, 0, 0).getTime();
+  const nowIso = new Date(nowMs).toISOString();
+  const okRes = applyCancelEventTransition({
+    eventProposals: [ev, archEv],
+    slotBids: bids,
+    eventId: 'ev-to-cancel',
+    actorVenueId: 'venue-1',
+    reason: 'Refacción eléctrica de sala',
+    nowMs,
+    nowIso,
+    historyIdPrefix: 'h-can',
+  });
+  assert.equal(okRes.ok, true);
+  assert.equal(okRes.updatedEvent.status, 'cancelada');
+  assert.equal(okRes.updatedEvent.cancelledAt, nowIso);
+  assert.match(okRes.updatedEvent.lastActionSummary || '', /Refacción eléctrica de sala/);
+  assert.equal(okRes.closedBids.length, 2);
+  assert.equal(okRes.slotBids.find((b) => b.id === 'b-act')?.status, 'rechazada');
+  assert.equal(okRes.slotBids.find((b) => b.id === 'b-pend')?.status, 'rechazada');
+  assert.match(okRes.slotBids.find((b) => b.id === 'b-act')?.history.slice(-1)[0].note || '', /canceló el evento/i);
+
+  // Cannot cancel twice
+  const twice = applyCancelEventTransition({
+    eventProposals: okRes.eventProposals,
+    slotBids: okRes.slotBids,
+    eventId: 'ev-to-cancel',
+    actorVenueId: 'venue-1',
+    nowMs,
+  });
+  assert.equal(twice.ok, false);
+});
+
+test('56. getEventLastActionInfo & getBidLastActionInfo surface newest history/event audit details', () => {
+  const ev = makeProposal({
+    id: 'ev-audit',
+    venueName: 'Bar Test 1',
+    lastActionAt: '2026-11-28T10:00:00.000Z',
+    lastActionActor: 'Bar Test 1',
+    lastActionSummary: 'Convocatoria creada',
+  });
+  const bid = makeBid({
+    id: 'b-audit',
+    eventId: 'ev-audit',
+    musicianName: 'Músico Test 1',
+    createdAt: '2026-11-28T11:00:00.000Z',
+    status: 'contraoferta_bar',
+    history: [
+      {
+        id: 'h-1',
+        actor: 'musico',
+        actorName: 'Músico Test 1',
+        cachetARS: 70000,
+        note: 'Propuesta inicial',
+        createdAt: '2026-11-28T11:00:00.000Z',
+      },
+      {
+        id: 'h-2',
+        actor: 'bar',
+        actorName: 'Bar Test 1',
+        cachetARS: 65000,
+        note: 'Contraoferta por $ 65.000',
+        createdAt: '2026-11-28T14:30:00.000Z',
+      },
+    ],
+  });
+
+  const bidInfo = getBidLastActionInfo(bid, ev);
+  assert.equal(bidInfo.actorLabel, 'Bar Test 1');
+  assert.equal(bidInfo.summary, 'Contraoferta por $ 65.000');
+  assert.match(bidInfo.formattedTime, /28\/11\/2026/);
+
+  // Since bid history timestamp (14:30) is newer than event.lastActionAt (10:00), event info picks newest bid update
+  const evInfo = getEventLastActionInfo(ev, [bid]);
+  assert.equal(evInfo.summary, 'Contraoferta por $ 65.000');
+
+  // If event has newer explicit lastActionAt (e.g. cancelled at 16:00), event wins
+  const newerEv = {
+    ...ev,
+    status: 'cancelada' as const,
+    lastActionAt: '2026-11-28T16:00:00.000Z',
+    lastActionActor: 'Bar Test 1',
+    lastActionSummary: 'Evento cancelado: Lluvia',
+  };
+  const newerInfo = getEventLastActionInfo(newerEv, [bid]);
+  assert.equal(newerInfo.summary, 'Evento cancelado: Lluvia');
+});
+
+test('57. read-only enforcement blocks bidding, responding, retracting, and publishing on archivado and cancelada events', () => {
+  const archEv = makeProposal({
+    id: 'ev-ro-arch',
+    date: '2026-10-01',
+    status: 'archivado',
+    slots: [
+      { id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'libre' },
+      { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-1', assignedMusicianName: 'Músico Test 1', agreedCachetARS: 60000 },
+    ],
+  });
+  const canEv = makeProposal({
+    id: 'ev-ro-can',
+    date: '2099-06-15',
+    status: 'cancelada',
+  });
+  const archBid = makeBid({ id: 'b-arch', eventId: 'ev-ro-arch', slotId: 'slot-1', status: 'pendiente_bar' });
+  const canBid = makeBid({ id: 'b-can', eventId: 'ev-ro-can', slotId: 'slot-1', status: 'pendiente_bar' });
+
+  assert.equal(canSubmitBidForSlot({ proposal: archEv, slot: archEv.slots[0], slotBids: [], musicianId: 'mus-2' }).allowed, false);
+  assert.equal(canSubmitBidForSlot({ proposal: canEv, slot: canEv.slots[0], slotBids: [], musicianId: 'mus-2' }).allowed, false);
+
+  assert.equal(
+    validateRespondToSlotBid({ bid: archBid, event: archEv, allSlotBids: [archBid], actorRole: 'bar', actorEntityId: 'venue-1', action: 'accept' }).allowed,
+    false
+  );
+  assert.equal(
+    validateRespondToSlotBid({ bid: canBid, event: canEv, allSlotBids: [canBid], actorRole: 'bar', actorEntityId: 'venue-1', action: 'counter', counterCachet: 55000 }).allowed,
+    false
+  );
+
+  assert.equal(validateRetractSlotBid({ bid: archBid, event: archEv, actorMusicianId: 'mus-1' }).allowed, false);
+  assert.equal(validateRetractSlotBid({ bid: canBid, event: canEv, actorMusicianId: 'mus-1' }).allowed, false);
+
+  assert.equal(applyPublishEventTransition({ eventProposals: [archEv], slotBids: [], eventId: 'ev-ro-arch' }).ok, false);
+  assert.equal(applyPublishEventTransition({ eventProposals: [canEv], slotBids: [], eventId: 'ev-ro-can' }).ok, false);
+
+  // Also visible in Cartelera only when publicada & not archived
+  assert.equal(isEventVisibleInConvocatorias({ proposal: archEv, role: 'espectador' }), false);
+  assert.equal(isEventVisibleInConvocatorias({ proposal: canEv, role: 'espectador' }), false);
+  assert.equal(isEventVisibleInConvocatorias({ proposal: archEv, role: 'musico', musicianId: 'mus-1' }), false);
+  assert.equal(isEventVisibleInConvocatorias({ proposal: archEv, role: 'bar', viewerVenueId: 'venue-1', barStatusFilter: 'archivado' }), true);
+});
+
 
 
 

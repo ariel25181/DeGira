@@ -8,6 +8,7 @@ import { SessionProvider } from '../../src/context/SessionContext.tsx';
 import { OpenCallsView } from '../../src/components/OpenCallsView.tsx';
 import { AgreementsAndReviewsView } from '../../src/components/AgreementsAndReviewsView.tsx';
 import { CreateEventProposalModal } from '../../src/components/modals/CreateEventProposalModal.tsx';
+import { offsetIsoDate } from '../../src/utils/bookingLogic.ts';
 
 const mockClient = {
   auth: {
@@ -88,7 +89,7 @@ function seedFourSlotEvent() {
         venueNeighborhood: 'Palermo Hollywood',
         venueAddress: 'Honduras 4800',
         title: 'Ronda de canciones (4 Slots)',
-        date: '2026-11-22',
+        date: offsetIsoDate(15),
         startTime: '20:00',
         endTime: '00:00',
         totalCapacity: 80,

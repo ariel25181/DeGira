@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { EventSlot, MusicGenre, NeighborhoodBA, CachetMode } from '../../types/index.ts';
-import { formatCachet, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
+import { formatCachet, offsetIsoDate, sanitizeNumericInput } from '../../utils/bookingLogic.ts';
 import { makeUniqueId } from '../../utils/slotBidding.ts';
 
 interface CreateEventProposalModalProps {
@@ -48,7 +48,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
   const [newVenueNeighborhood, setNewVenueNeighborhood] = useState<NeighborhoodBA>('San Telmo');
 
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState('2026-11-28');
+  const [date, setDate] = useState(() => offsetIsoDate(7));
   const [startTime, setStartTime] = useState('20:30');
   const [endTime, setEndTime] = useState('01:00');
   const [totalCapacityText, setTotalCapacityText] = useState('80');

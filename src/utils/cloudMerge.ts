@@ -78,6 +78,7 @@ export function mergeSlotBidsMonotonic(
 }
 
 function getEventStatusRank(status: EventProposal['status']): number {
+  if (status === 'archivado') return 6;
   if (status === 'cancelada') return 5;
   if (status === 'agotada') return 4;
   if (status === 'publicada') return 3;
@@ -210,7 +211,9 @@ export function mergeEventProposalsMonotonic(
     const cloudRank = getEventStatusRank(cloudEv.status);
 
     let finalStatus = cloudEv.status;
-    if (existing && localRank >= cloudRank && cloudTs <= localTs) {
+    if (existing && localRank > cloudRank) {
+      finalStatus = existing.status;
+    } else if (existing && localRank === cloudRank && cloudTs <= localTs) {
       finalStatus = existing.status;
     }
     if (hasConfirmed && finalStatus === 'propuesta') {
@@ -220,8 +223,21 @@ export function mergeEventProposalsMonotonic(
       finalStatus = 'propuesta';
     }
 
+    const localActionMs = existing?.lastActionAt ? new Date(existing.lastActionAt).getTime() : NaN;
+    const cloudActionMs = cloudEv.lastActionAt ? new Date(cloudEv.lastActionAt).getTime() : NaN;
+    const keepLocalAction =
+      Boolean(existing?.lastActionAt) &&
+      (!Number.isFinite(cloudActionMs) || (Number.isFinite(localActionMs) && localActionMs >= cloudActionMs));
+
     byId.set(cloudEv.id, {
       ...baseMerged,
+      ...(keepLocalAction && existing
+        ? {
+            lastActionAt: existing.lastActionAt,
+            lastActionSummary: existing.lastActionSummary,
+            lastActionActor: existing.lastActionActor,
+          }
+        : {}),
       slots: mergedSlots,
       status: finalStatus,
     });

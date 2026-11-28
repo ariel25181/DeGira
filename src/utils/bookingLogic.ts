@@ -114,6 +114,17 @@ export function formatDateBA(dateStr: string): string {
 }
 
 /**
+ * Returns local calendar ISO date YYYY-MM-DD shifted by daysOffset
+ */
+export function offsetIsoDate(daysOffset = 0, baseDate: Date = new Date()): string {
+  const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + daysOffset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Filter Open Calls for musicians
  */
 export function filterOpenCalls(

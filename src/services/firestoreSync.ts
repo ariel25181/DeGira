@@ -26,6 +26,7 @@ import {
   MusicianMusicLinks,
   MusicianInputChannel,
 } from '../types/index.ts';
+import { offsetIsoDate } from '../utils/bookingLogic.ts';
 
 function stripUndefined<T extends Record<string, any>>(obj: T): Record<string, any> {
   const result: Record<string, any> = {};
@@ -129,7 +130,7 @@ function sanitizeVenuePayload(venue: VenueProfile, uid: string): Record<string, 
 }
 
 function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<string, any> {
-  const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(ev.date) ? ev.date : '2026-11-28';
+  const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(ev.date) ? ev.date : offsetIsoDate(0);
   return stripUndefined({
     id: clampString(ev.id, 128),
     venueId: clampString(ev.venueId, 128, 'venue-1'),
@@ -164,6 +165,10 @@ function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<st
     cachetPaid: ev.cachetPaid,
     cachetPaidAt: ev.cachetPaidAt ? clampString(ev.cachetPaidAt, 60) : undefined,
     feedbackSentAt: ev.feedbackSentAt ? clampString(ev.feedbackSentAt, 60) : undefined,
+    cancelledAt: ev.cancelledAt ? clampString(ev.cancelledAt, 60) : undefined,
+    lastActionAt: ev.lastActionAt ? clampString(ev.lastActionAt, 60) : undefined,
+    lastActionSummary: ev.lastActionSummary ? clampString(ev.lastActionSummary, 240) : undefined,
+    lastActionActor: ev.lastActionActor ? clampString(ev.lastActionActor, 140) : undefined,
     visibility: 'public',
     ownerUid: uid,
     createdAt: clampString(ev.createdAt, 60, new Date().toISOString()),
@@ -289,11 +294,17 @@ export async function syncEventProposalSlotsAndStatus(
       await setDoc(ref, sanitizeEventProposalPayload(ev, uid));
       return;
     }
-    await updateDoc(ref, {
-      slots: sanitizeSlots(ev.slots),
-      status: ev.status,
-      updatedAtTimestamp: serverTimestamp(),
-    });
+    await updateDoc(
+      ref,
+      stripUndefined({
+        slots: sanitizeSlots(ev.slots),
+        status: ev.status,
+        lastActionAt: ev.lastActionAt ? clampString(ev.lastActionAt, 60) : undefined,
+        lastActionSummary: ev.lastActionSummary ? clampString(ev.lastActionSummary, 240) : undefined,
+        lastActionActor: ev.lastActionActor ? clampString(ev.lastActionActor, 140) : undefined,
+        updatedAtTimestamp: serverTimestamp(),
+      })
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -304,7 +315,16 @@ export async function syncEventProposalBarUpdate(
   updates: Partial<
     Pick<
       EventProposal,
-      'slots' | 'status' | 'remainingCapacity' | 'cachetPaid' | 'cachetPaidAt' | 'feedbackSentAt'
+      | 'slots'
+      | 'status'
+      | 'remainingCapacity'
+      | 'cachetPaid'
+      | 'cachetPaidAt'
+      | 'feedbackSentAt'
+      | 'cancelledAt'
+      | 'lastActionAt'
+      | 'lastActionSummary'
+      | 'lastActionActor'
     >
   >,
   fallbackProposal?: EventProposal,
@@ -323,6 +343,16 @@ export async function syncEventProposalBarUpdate(
     const patch: Record<string, any> = stripUndefined({
       ...updates,
       ...(updates.slots ? { slots: sanitizeSlots(updates.slots) } : {}),
+      ...(updates.cachetPaidAt !== undefined ? { cachetPaidAt: clampString(updates.cachetPaidAt, 60) } : {}),
+      ...(updates.feedbackSentAt !== undefined ? { feedbackSentAt: clampString(updates.feedbackSentAt, 60) } : {}),
+      ...(updates.cancelledAt !== undefined ? { cancelledAt: clampString(updates.cancelledAt, 60) } : {}),
+      ...(updates.lastActionAt !== undefined ? { lastActionAt: clampString(updates.lastActionAt, 60) } : {}),
+      ...(updates.lastActionSummary !== undefined
+        ? { lastActionSummary: clampString(updates.lastActionSummary, 240) }
+        : {}),
+      ...(updates.lastActionActor !== undefined
+        ? { lastActionActor: clampString(updates.lastActionActor, 140) }
+        : {}),
       updatedAtTimestamp: serverTimestamp(),
     });
     await updateDoc(ref, patch);

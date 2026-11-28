@@ -26,7 +26,6 @@ interface FeedbackModalProps {
   currentTab: string;
   initialScreenshot?: string;
   onRetakeScreenshot?: () => string | undefined;
-  onOpenQaTool?: () => void; // [QA_TOOL_REMOVABLE]
 }
 
 type FeedbackType = 'bug' | 'feature' | 'general';
@@ -52,7 +51,6 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   currentTab,
   initialScreenshot,
   onRetakeScreenshot,
-  onOpenQaTool,
 }) => {
   const [type, setType] = useState<FeedbackType>('bug');
   const [title, setTitle] = useState('');
@@ -496,20 +494,6 @@ ${contactEmail ? `**Contacto:** ${contactEmail}\n` : ''}${mediaSummary ? `\n${me
                     <div><strong>URL:</strong> {technicalInfo.currentUrl}</div>
                     <div className="truncate"><strong>Navegador:</strong> {technicalInfo.userAgent}</div>
                   </div>
-                )}
-
-                {onOpenQaTool && (
-                  <button
-                    type="button"
-                    data-testid="feedback-open-qa-btn"
-                    onClick={() => {
-                      handleResetAndClose();
-                      onOpenQaTool();
-                    }}
-                    className="mt-2 w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <span>🧪 Abrir Grabador UI & Simulador QA</span>
-                  </button>
                 )}
               </div>
 

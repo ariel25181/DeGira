@@ -228,7 +228,7 @@ export function getPendingReviewsForRole(params: {
   const items: PendingReviewItem[] = [];
 
   for (const ev of eventProposals) {
-    if (ev.status !== 'publicada' && ev.status !== 'agotada') continue;
+    if (ev.status !== 'publicada' && ev.status !== 'agotada' && ev.status !== 'archivado') continue;
 
     const assignedSlots = ev.slots.filter((s) => Boolean(s.assignedMusicianId));
     const musicianIds = Array.from(
