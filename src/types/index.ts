@@ -274,7 +274,8 @@ export interface EventProposal {
   waitlist?: string[]; // emails de espectadores en lista de espera
   cachetPaid?: boolean; // liquidación de cachet a músicos
   cachetPaidAt?: string;
-  feedbackSentAt?: string; // disparo automático 1h post evento
+  feedbackSentAt?: string; // disparo automático post evento
+  cancelDaysBefore?: number; // Días mínimos previos al evento para poder cancelar (opcional; vacío = solo urgencia a admin)
   cancelledAt?: string;
   lastActionAt?: string;
   lastActionSummary?: string;
@@ -308,7 +309,8 @@ export interface MusicianSlotBid {
   inputList?: MusicianInputChannel[];
   reminderSentAt?: string;   // Último recordatorio enviado al bar
   reminderCount?: number;    // Cantidad de recordatorios
-  retracted?: boolean;       // Músico se retractó (permitido hasta 24hs antes)
+  cancelDaysBefore?: number; // Días mínimos previos al horario para poder cancelar/retractarse (opcional; vacío = solo urgencia a admin)
+  retracted?: boolean;       // Músico se retractó dentro del plazo configurado
   retractedAt?: string;
   status: 'pendiente_bar' | 'contraoferta_bar' | 'contraoferta_musico' | 'aceptada' | 'rechazada';
   history: SlotBidHistoryEntry[];

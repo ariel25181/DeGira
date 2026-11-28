@@ -54,7 +54,9 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
   const [totalCapacityText, setTotalCapacityText] = useState('80');
   const [cachetType, setCachetType] = useState<CachetMode>('fijo');
   const [baseCachetText, setBaseCachetText] = useState('70000');
+  const [isFreeEntry, setIsFreeEntry] = useState(false);
   const [ticketPriceText, setTicketPriceText] = useState('8000');
+  const [cancelDaysBeforeText, setCancelDaysBeforeText] = useState('');
   const [selectedGenres, setSelectedGenres] = useState<MusicGenre[]>(['Jazz', 'Blues & Soul']);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       setSelectedVenueId(currentVenue.id);
       setIsCreatingNewVenue(false);
       setFormError(null);
+      setCancelDaysBeforeText('');
     }
   }, [isOpen, currentVenue?.id]);
 
@@ -133,10 +136,24 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       return;
     }
 
-    const parsedTicketPrice = ticketPriceText === '' ? 0 : Number(ticketPriceText);
-    if (!Number.isFinite(parsedTicketPrice) || parsedTicketPrice < 0) {
+    const parsedTicketPrice = isFreeEntry
+      ? 0
+      : ticketPriceText === ''
+      ? 0
+      : Number(ticketPriceText);
+    if (!isFreeEntry && (!Number.isFinite(parsedTicketPrice) || parsedTicketPrice < 0)) {
       setFormError('Ingresá un precio de entrada válido (0 o mayor).');
       return;
+    }
+
+    let parsedCancelDays: number | undefined;
+    if (cancelDaysBeforeText.trim() !== '') {
+      const n = Number(cancelDaysBeforeText);
+      if (!Number.isFinite(n) || n < 0 || n > 365 || !Number.isInteger(n)) {
+        setFormError('Ingresá una cantidad entera de días (0 a 365) para cancelar, o dejalo vacío.');
+        return;
+      }
+      parsedCancelDays = n;
     }
 
     const parsedMicCount = Math.max(1, Number(micCountText) || 4);
@@ -194,6 +211,7 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
       baseCachetARS: parsedBaseCachet,
       cachetType,
       ticketPriceARS: parsedTicketPrice,
+      ...(parsedCancelDays !== undefined ? { cancelDaysBefore: parsedCancelDays } : {}),
       targetGenres: selectedGenres.length > 0 ? selectedGenres : ['Jazz'],
       slots: formattedSlots,
       rider: newRider,
@@ -425,7 +443,53 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
               </div>
             )}
 
-            <div className={`grid gap-2 ${cachetType === 'fijo' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            {/* Entrada al público: Paga vs Gratis ($ 0) */}
+            <div className="space-y-2 pt-1 border-t border-slate-800/80">
+              <label className="block text-[11px] font-bold text-slate-300">
+                Entrada para el Público:
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="create-event-ticket-paid"
+                  onClick={() => {
+                    setIsFreeEntry(false);
+                    if (ticketPriceText === '0' || ticketPriceText === '') {
+                      setTicketPriceText('8000');
+                    }
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                    !isFreeEntry
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow'
+                      : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  Entrada Paga (ARS)
+                </button>
+                <button
+                  type="button"
+                  data-testid="create-event-ticket-free"
+                  onClick={() => {
+                    setIsFreeEntry(true);
+                    setTicketPriceText('0');
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                    isFreeEntry
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow'
+                      : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  🎫 Entrada Gratis ($ 0)
+                </button>
+              </div>
+              {isFreeEntry && (
+                <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-[11px] text-emerald-200">
+                  Entrada Gratis ($ 0): el público obtiene confirmación y pase QR al instante sin transferencia bancaria.
+                </div>
+              )}
+            </div>
+
+            <div className={`grid gap-2 ${cachetType === 'fijo' && !isFreeEntry ? 'grid-cols-3' : cachetType === 'fijo' || !isFreeEntry ? 'grid-cols-2' : 'grid-cols-1'}`}>
               <div>
                 <label className="block text-[10px] font-semibold text-slate-400 mb-1">
                   Capacidad Sala
@@ -458,21 +522,60 @@ export const CreateEventProposalModal: React.FC<CreateEventProposalModalProps> =
                   />
                 </div>
               )}
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                  Entrada Público
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  required
-                  placeholder="0"
-                  value={ticketPriceText}
-                  onChange={(e) => setTicketPriceText(sanitizeNumericInput(e.target.value))}
-                  className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-emerald-400 focus:border-amber-500 outline-none"
-                />
-              </div>
+              {!isFreeEntry && (
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                    Precio Entrada (ARS)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    required
+                    placeholder="8000"
+                    value={ticketPriceText}
+                    onChange={(e) => {
+                      const clean = sanitizeNumericInput(e.target.value);
+                      setTicketPriceText(clean);
+                      if (clean === '0') setIsFreeEntry(true);
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-emerald-400 focus:border-amber-500 outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Política de Cancelación del Bar (Opcional) */}
+            <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1.5">
+              <label
+                htmlFor="create-event-cancel-days-input"
+                className="block text-[11px] font-bold text-slate-200"
+              >
+                Días previos límite para cancelar el evento (Opcional):
+              </label>
+              <input
+                id="create-event-cancel-days-input"
+                data-testid="create-event-cancel-days-input"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={365}
+                placeholder="Ej: 7 (vacío = sin cancelación directa)"
+                value={cancelDaysBeforeText}
+                onChange={(e) => setCancelDaysBeforeText(sanitizeNumericInput(e.target.value))}
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300 focus:border-amber-500 outline-none"
+              />
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                Si dejás este campo vacío, el bar no tendrá botón de cancelación directa y solo podrá enviar una urgencia al administrador (<strong>ariel.najlis@gmail.com</strong>).
+                {!isFreeEntry && (
+                  <>
+                    {' '}
+                    <strong className="text-amber-300">
+                      Además, como la entrada es paga, apenas haya entradas compradas o reservadas se deshabilitará la cancelación directa y solo quedará disponible la urgencia al administrador.
+                    </strong>
+                  </>
+                )}
+              </p>
             </div>
           </div>
 

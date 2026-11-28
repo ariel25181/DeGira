@@ -57,6 +57,9 @@ import {
   applyBidRetractionTransition,
   applyPublishEventTransition,
   applyCancelEventTransition,
+  getBarCancellationPolicyState,
+  getMusicianCancellationPolicyState,
+  ADMIN_URGENCY_EMAIL,
   makeUniqueId,
 } from '../utils/slotBidding.ts';
 import { supabase } from '../lib/supabaseClient.ts';
@@ -95,6 +98,8 @@ import {
   sendNegotiationUpdateEmailToMusician,
   sendReservationCreatedEmail,
   sendReservationExpiredEmail,
+  sendEventCancelledEmail,
+  sendAdminUrgencyEmail,
 } from '../lib/emailService.ts';
 import { sendPushNotification } from '../lib/push.ts';
 import { clearActiveSession, saveActiveSession } from '../lib/degiraSession.ts';
@@ -186,6 +191,7 @@ interface AppContextType {
   publishEventProposal: (id: string) => void;
   approveAndPublishEvent: (proposalId: string) => void;
   cancelEventProposal: (eventId: string, reason?: string) => { ok: boolean; message?: string };
+  sendAdminUrgency: (params: { eventId: string; bidId?: string; reason: string }) => { ok: boolean; message: string };
   addNewVenue: (venueData: Omit<VenueProfile, 'id' | 'rating' | 'reviewCount' | 'reviews' | 'ratingBreakdown'>) => VenueProfile;
   saveVenueRiderTemplate: (venueId: string, template: EventRider) => void;
   liquidateMusicianCachet: (proposalId: string) => void;
@@ -200,6 +206,7 @@ interface AppContextType {
     musicLinks?: MusicianMusicLinks;
     inputList?: MusicianInputChannel[];
     initialNote?: string;
+    cancelDaysBefore?: number;
   }) => { ok: boolean; message?: string };
   updateMusicianMusicLinks: (musicianId: string, links: MusicianMusicLinks, inputList?: MusicianInputChannel[]) => void;
   sendMusicianProposalReminder: (bidId: string) => { success: boolean; message: string };
@@ -480,6 +487,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const slotBidsRef = useRef<MusicianSlotBid[]>(slotBids);
   const publicEventReservationsRef = useRef<PublicEventReservation[]>(publicEventReservations);
   const reviews360Ref = useRef<EventReview360[]>(reviews360);
+  const sentCancelAlertsRef = useRef<Set<string>>(
+    (() => {
+      try {
+        const raw = localStorage.getItem('degira:cancel_alerts_sent:v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return new Set<string>(parsed);
+        }
+      } catch {
+        // ignore
+      }
+      return new Set<string>();
+    })()
+  );
 
   // Sync to localStorage & refs
   useEffect(() => {
@@ -1311,8 +1332,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const codeNumber = Math.floor(1000 + Math.random() * 9000);
     const barTag = data.venueId === 'venue-2' ? 'BAR2' : data.venueId === 'venue-1' ? 'BAR1' : 'BAR';
     const nowIso = new Date().toISOString();
+    const normalizedTicketPrice =
+      data.ticketPriceARS !== undefined && Number.isFinite(Number(data.ticketPriceARS))
+        ? Math.max(0, Number(data.ticketPriceARS))
+        : 8000;
+    const normalizedCancelDays =
+      typeof data.cancelDaysBefore === 'number' &&
+      Number.isFinite(data.cancelDaysBefore) &&
+      data.cancelDaysBefore >= 0
+        ? Math.min(365, Math.floor(data.cancelDaysBefore))
+        : undefined;
+    const { cancelDaysBefore: _ignoredCancelDays, ...restProposalData } = data;
     const newProposal: EventProposal = {
-      ...data,
+      ...restProposalData,
+      ticketPriceARS: normalizedTicketPrice,
+      ...(normalizedCancelDays !== undefined ? { cancelDaysBefore: normalizedCancelDays } : {}),
       id: makeUniqueId('ev'),
       eventCode: `DG-${barTag}-${codeNumber}`,
       remainingCapacity: data.totalCapacity,
@@ -1608,6 +1642,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     musicLinks?: MusicianMusicLinks;
     inputList?: MusicianInputChannel[];
     initialNote?: string;
+    cancelDaysBefore?: number;
   }): { ok: boolean; message?: string } => {
     const mus = currentMusician || musicians[0];
     const targetEvent = eventProposalsRef.current.find((e) => e.id === data.eventId);
@@ -1615,6 +1650,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const effectiveCachetType: CachetMode =
       data.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo';
     const effectiveCachetARS = effectiveCachetType === 'a_la_gorra' ? 0 : data.proposedCachetARS;
+    const normalizedCancelDays =
+      typeof data.cancelDaysBefore === 'number' &&
+      Number.isFinite(data.cancelDaysBefore) &&
+      data.cancelDaysBefore >= 0
+        ? Math.min(365, Math.floor(data.cancelDaysBefore))
+        : undefined;
 
     const newBid: MusicianSlotBid = {
       id: makeUniqueId('bid'),
@@ -1630,6 +1671,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       equipmentNeeded: data.equipmentNeeded,
       musicLinks: data.musicLinks || mus.musicLinks,
       inputList: data.inputList || mus.defaultInputList,
+      ...(normalizedCancelDays !== undefined ? { cancelDaysBefore: normalizedCancelDays } : {}),
       status: 'pendiente_bar',
       history: [
         {
@@ -1807,7 +1849,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {
         id: makeUniqueId('notif-bar-retract'),
         title: '↩️ Un músico se retractó del horario',
-        message: `${transition.updatedBid.musicianName} se retractó de su horario para "${transition.event.title}" (más de 24hs de anticipación). El slot quedó libre para recibir nuevas propuestas.`,
+        message: `${transition.updatedBid.musicianName} se retractó de su horario para "${transition.event.title}" dentro del plazo de cancelación. El slot quedó libre para recibir nuevas propuestas.`,
         timestamp: 'Recién',
         read: false,
         type: 'application',
@@ -2103,6 +2145,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       eventId,
       actorVenueId: currentVenue?.id,
       reason,
+      reservations: publicEventReservationsRef.current,
     });
     if (!transition.ok) {
       return { ok: false, message: transition.message };
@@ -2113,12 +2156,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     eventProposalsRef.current = transition.eventProposals;
     setEventProposals(transition.eventProposals);
 
+    const cancellationReason = reason?.trim()
+      ? `Evento cancelado por el bar: ${reason.trim()}`
+      : 'Evento cancelado por el bar';
+    const affectedReservations = publicEventReservationsRef.current.filter(
+      (r) => r.eventId === eventId && r.status !== 'cancelada' && r.status !== 'expirada'
+    );
+    if (affectedReservations.length > 0) {
+      const affectedIds = new Set(affectedReservations.map((r) => r.id));
+      const nextReservations = publicEventReservationsRef.current.map((r) =>
+        affectedIds.has(r.id)
+          ? { ...r, status: 'cancelada' as const, rejectionReason: cancellationReason }
+          : r
+      );
+      publicEventReservationsRef.current = nextReservations;
+      setPublicEventReservations(nextReservations);
+    }
+
     if (firebaseUser) {
-      Promise.all(
-        transition.closedBids.map((closedBid) =>
+      Promise.all([
+        ...transition.closedBids.map((closedBid) =>
           syncSlotBidBarResponse(closedBid, target, firebaseUser.uid)
-        )
-      )
+        ),
+        ...affectedReservations.map((res) =>
+          syncReservationBarUpdate({
+            ...res,
+            status: 'cancelada',
+            rejectionReason: cancellationReason,
+          })
+        ),
+      ])
         .then(() =>
           syncEventProposalBarUpdate(
             eventId,
@@ -2142,12 +2209,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...transition.closedBids.map((b) => b.musicianId),
       ])
     );
+    const venueEmail = resolveVenueEmail(target.venueId, venuesRef.current);
+
+    affectedMusicianIds.forEach((mId) => {
+      const musician = musicians.find((m) => m.id === mId);
+      sendEventCancelledEmail({
+        toEmail: resolveMusicianEmail(mId),
+        recipientName: musician?.stageName || 'Músico',
+        targetRole: 'musico',
+        eventTitle: target.title,
+        venueName: target.venueName,
+        eventDate: target.date,
+        reason,
+        targetEntityId: mId,
+        senderEntityId: target.venueId,
+        fromEmail: venueEmail,
+      });
+    });
+
+    affectedReservations.forEach((r) => {
+      sendEventCancelledEmail({
+        toEmail: r.userEmail,
+        recipientName: r.userName,
+        targetRole: 'espectador',
+        eventTitle: target.title,
+        venueName: target.venueName,
+        eventDate: target.date,
+        reason,
+        hadPaidTicket: r.totalARS > 0,
+        targetEntityId: r.userId,
+        senderEntityId: target.venueId,
+        fromEmail: venueEmail,
+      });
+    });
 
     setNotifications((prev) => [
       {
         id: makeUniqueId('notif-cancel-bar'),
         title: '🚫 Evento Cancelado',
-        message: `Cancelaste "${target.title}". Pasó a modo lectura y ya no acepta postulaciones ni reservas.`,
+        message: `Cancelaste "${target.title}". Pasó a modo lectura y se notificó a músicos y público con reserva.`,
         timestamp: 'Recién',
         read: false,
         type: 'system',
@@ -2157,17 +2257,123 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...affectedMusicianIds.map((mId) => ({
         id: makeUniqueId('notif-cancel-mus'),
         title: '🚫 Evento Cancelado por el Bar',
-        message: `${target.venueName} canceló "${target.title}" (${target.date}).${reason?.trim() ? ` Motivo: ${reason.trim()}` : ''}`,
+        message: `${target.venueName} canceló "${target.title}" (${target.date}). Tu horario quedó liberado.${reason?.trim() ? ` Motivo: ${reason.trim()}` : ''}`,
         timestamp: 'Recién',
         read: false,
         type: 'system' as const,
         targetRole: 'musico' as const,
         targetEntityId: mId,
       })),
+      ...affectedReservations.map((r) => ({
+        id: makeUniqueId('notif-cancel-esp'),
+        title: '🚫 Show Cancelado por el Bar',
+        message: `${target.venueName} canceló "${target.title}" (${target.date}). Tu reserva (${r.eventCode}) fue cancelada.${reason?.trim() ? ` Motivo: ${reason.trim()}` : ''}`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'system' as const,
+        targetRole: 'espectador' as const,
+        targetEntityId: r.userId,
+        targetEmail: r.userEmail,
+      })),
       ...prev,
     ]);
 
     return { ok: true };
+  };
+
+  const sendAdminUrgency = (params: {
+    eventId: string;
+    bidId?: string;
+    reason: string;
+  }): { ok: boolean; message: string } => {
+    if (role !== 'bar' && role !== 'musico') {
+      return { ok: false, message: 'Solo bares o músicos pueden enviar una urgencia al administrador.' };
+    }
+    const trimmedReason = params.reason.trim();
+    if (!trimmedReason) {
+      return { ok: false, message: 'Describí el motivo de la urgencia antes de enviar.' };
+    }
+    const targetEvent = eventProposalsRef.current.find((e) => e.id === params.eventId);
+    if (!targetEvent) {
+      return { ok: false, message: 'Evento no encontrado.' };
+    }
+    const targetBid = params.bidId
+      ? slotBidsRef.current.find((b) => b.id === params.bidId)
+      : undefined;
+
+    const senderRole: 'bar' | 'musico' = role;
+    const senderName =
+      senderRole === 'bar'
+        ? currentVenue?.name || targetEvent.venueName
+        : currentMusician?.stageName || targetBid?.musicianName || 'Músico DeGira';
+    const senderEntityId =
+      senderRole === 'bar'
+        ? currentVenue?.id || targetEvent.venueId
+        : currentMusician?.id || targetBid?.musicianId || 'mus-1';
+    const senderEmail =
+      senderRole === 'bar'
+        ? resolveVenueEmail(senderEntityId, venuesRef.current)
+        : resolveMusicianEmail(senderEntityId);
+
+    sendAdminUrgencyEmail({
+      senderRole,
+      senderName,
+      senderEmail,
+      senderEntityId,
+      eventTitle: targetEvent.title,
+      venueName: targetEvent.venueName,
+      eventDate: targetEvent.date,
+      reason: trimmedReason,
+    });
+
+    if (senderRole === 'bar' && !isEventArchived(targetEvent) && targetEvent.status !== 'cancelada') {
+      const nowIso = new Date().toISOString();
+      const summary = 'Urgencia enviada al administrador';
+      const nextEvents = eventProposalsRef.current.map((ev) =>
+        ev.id === targetEvent.id
+          ? {
+              ...ev,
+              lastActionAt: nowIso,
+              lastActionActor: senderName,
+              lastActionSummary: summary,
+            }
+          : ev
+      );
+      eventProposalsRef.current = nextEvents;
+      setEventProposals(nextEvents);
+      if (firebaseUser) {
+        syncEventProposalBarUpdate(
+          targetEvent.id,
+          {
+            lastActionAt: nowIso,
+            lastActionActor: senderName,
+            lastActionSummary: summary,
+          },
+          targetEvent,
+          firebaseUser.uid
+        ).catch(() => setCloudSyncStatus('error'));
+      }
+    }
+
+    setNotifications((prev) => [
+      {
+        id: makeUniqueId('notif-urgency'),
+        title: '🚨 Urgencia enviada al administrador',
+        message: `Se envió tu solicitud urgente por "${targetEvent.title}" a ${ADMIN_URGENCY_EMAIL}.`,
+        timestamp: 'Recién',
+        read: false,
+        type: 'system',
+        targetRole: senderRole,
+        targetEntityId: senderEntityId,
+        targetEmail: senderEmail,
+      },
+      ...prev,
+    ]);
+
+    return {
+      ok: true,
+      message: `Urgencia enviada al administrador (${ADMIN_URGENCY_EMAIL}).`,
+    };
   };
 
   const addNewVenue = (
@@ -2218,15 +2424,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userName?: string,
     userEmail?: string
   ): PublicEventReservation => {
-    const event = eventProposals.find((e) => e.id === eventId);
+    const event =
+      eventProposalsRef.current.find((e) => e.id === eventId) ||
+      eventProposals.find((e) => e.id === eventId);
     const resolvedName = userName || userDisplayName || currentPublicUser?.name || 'Usuario Público 1';
     const resolvedEmail = userEmail || currentPublicUser?.email || 'publico1@degira.com.ar';
+    const resolvedUserId = currentPublicUser?.id || 'user-pub-1';
+    const unitPrice = event?.ticketPriceARS ?? 8000;
+    const totalARS = unitPrice * partySize;
+    const isFree = unitPrice === 0;
+    const resolvedEventCode =
+      event?.eventCode || `DG-BAR1-${Math.floor(1000 + Math.random() * 9000)}`;
+    const qrTicketCode = isFree
+      ? `DeGira:Reserva:${eventId}:${resolvedEventCode}:${resolvedUserId}:${partySize}p`
+      : undefined;
 
     const newReservation: PublicEventReservation = {
       id: `res-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       eventId,
       eventTitle: event?.title || 'Show en Vivo',
-      eventCode: event?.eventCode || `DG-BAR1-${Math.floor(1000 + Math.random() * 9000)}`,
+      eventCode: resolvedEventCode,
       venueId: event?.venueId || 'venue-1',
       venueName: event?.venueName || 'Bar Test 1',
       venueAddress: event?.venueAddress || 'Honduras 4800',
@@ -2234,49 +2451,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       eventDate: event?.date || offsetIsoDate(5),
       eventStartTime: event?.startTime || '21:00',
       eventEndTime: event?.endTime || '01:00',
-      userId: currentPublicUser?.id || 'user-pub-1',
+      userId: resolvedUserId,
       userName: resolvedName,
       userEmail: resolvedEmail,
       partySize,
-      totalARS: 8000 * partySize,
-      expiresAt: Date.now() + 8 * 60 * 1000, // 8 minutos
-      status: 'pendiente_pago',
+      totalARS,
+      expiresAt: Date.now() + 8 * 60 * 1000,
+      status: isFree ? 'confirmada' : 'pendiente_pago',
+      ...(qrTicketCode
+        ? {
+            qrTicketCode,
+            qrEmailSent: true,
+            checkInStatus: 'pending' as const,
+          }
+        : {}),
       createdAt: new Date().toISOString(),
     };
 
-    setPublicEventReservations((prev) => [newReservation, ...prev]);
+    const nextReservations = [newReservation, ...publicEventReservationsRef.current];
+    publicEventReservationsRef.current = nextReservations;
+    setPublicEventReservations(nextReservations);
 
-    if (firebaseUser) {
-      syncReservationCreate(newReservation, event, firebaseUser.uid).catch(() =>
-        setCloudSyncStatus('error')
+    let updatedEventForCapacity: EventProposal | undefined;
+    if (isFree && event) {
+      updatedEventForCapacity = applyPaymentConfirmationToEvent(
+        event,
+        partySize,
+        'pendiente_pago'
       );
+      const nextEvents = eventProposalsRef.current.map((ev) =>
+        ev.id === eventId ? updatedEventForCapacity! : ev
+      );
+      eventProposalsRef.current = nextEvents;
+      setEventProposals(nextEvents);
     }
 
-    sendReservationCreatedEmail({
-      userEmail: resolvedEmail,
-      userName: resolvedName,
-      eventTitle: event?.title || 'Show en Vivo',
-      venueName: event?.venueName || 'Bar DeGira',
-      partySize,
-      totalARS: 8000 * partySize,
-      eventCode: newReservation.eventCode,
-      targetEntityId: newReservation.userId,
-    });
+    if (firebaseUser) {
+      syncReservationCreate(newReservation, event, firebaseUser.uid)
+        .then(() => {
+          if (isFree && updatedEventForCapacity) {
+            return syncEventCapacityOrWaitlist(updatedEventForCapacity, firebaseUser.uid);
+          }
+        })
+        .catch(() => setCloudSyncStatus('error'));
+    }
 
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        title: '⏱️ Tenés 8 minutos para pagar',
-        message: `Realizá el pago con código ${newReservation.eventCode} y subí tu comprobante en Mi Perfil & Reservas. Te enviamos los detalles por correo.`,
-        timestamp: 'Recién',
-        read: false,
-        type: 'system',
-        targetRole: 'espectador',
+    if (isFree && qrTicketCode) {
+      sendQrTicketEmail({
+        toEmail: resolvedEmail,
+        userName: resolvedName,
+        eventTitle: event?.title || 'Show en Vivo',
+        venueName: event?.venueName || 'Bar Test 1',
+        venueAddress: event?.venueAddress || 'Honduras 4800',
+        eventDate: event?.date || offsetIsoDate(5),
+        eventTime: `${event?.startTime || '21:00'} hs`,
+        partySize,
+        qrTicketCode,
+        isFree: true,
+        targetEntityId: resolvedUserId,
+        senderEntityId: event?.venueId,
+        fromEmail: resolveVenueEmail(event?.venueId, venuesRef.current),
+      });
+
+      setNotifications((prev) => [
+        {
+          id: makeUniqueId('notif-free-qr'),
+          title: '🎟️ Entrada Gratis Confirmada & Pase QR Emitido',
+          message: `Tu entrada gratuita para "${event?.title || 'Show en Vivo'}" (${partySize} pers.) fue confirmada al instante. Código QR: ${qrTicketCode}`,
+          timestamp: 'Recién',
+          read: false,
+          type: 'confirmed',
+          targetRole: 'espectador',
+          targetEntityId: resolvedUserId,
+          targetEmail: resolvedEmail,
+        },
+        ...prev,
+      ]);
+    } else {
+      sendReservationCreatedEmail({
+        userEmail: resolvedEmail,
+        userName: resolvedName,
+        eventTitle: event?.title || 'Show en Vivo',
+        venueName: event?.venueName || 'Bar DeGira',
+        partySize,
+        totalARS,
+        eventCode: newReservation.eventCode,
         targetEntityId: newReservation.userId,
-        targetEmail: resolvedEmail,
-      },
-      ...prev,
-    ]);
+      });
+
+      setNotifications((prev) => [
+        {
+          id: `notif-${Date.now()}`,
+          title: '⏱️ Tenés 8 minutos para pagar',
+          message: `Realizá el pago con código ${newReservation.eventCode} y subí tu comprobante en Mi Perfil & Reservas. Te enviamos los detalles por correo.`,
+          timestamp: 'Recién',
+          read: false,
+          type: 'system',
+          targetRole: 'espectador',
+          targetEntityId: newReservation.userId,
+          targetEmail: resolvedEmail,
+        },
+        ...prev,
+      ]);
+    }
 
     return newReservation;
   };
@@ -2948,7 +3225,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Auto-archivado de eventos pasados & chequeo periódico de feedback 2hs post-evento
+  // Auto-archivado de eventos pasados, alertas de plazo de cancelación & chequeo periódico de feedback 2hs post-evento
   useEffect(() => {
     const runLifecycleMaintenance = () => {
       const now = Date.now();
@@ -2973,7 +3250,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
+      const newPolicyAlerts: NotificationItem[] = [];
+      let alertsCacheDirty = false;
+      const pushDeduplicatedAlert = (key: string, notif: Omit<NotificationItem, 'id'>) => {
+        if (sentCancelAlertsRef.current.has(key)) return;
+        sentCancelAlertsRef.current.add(key);
+        alertsCacheDirty = true;
+        newPolicyAlerts.push({
+          ...notif,
+          id: makeUniqueId('notif-policy'),
+        });
+      };
+
       nextEvents.forEach((ev) => {
+        if (ev.cancelDaysBefore !== undefined && ev.status !== 'cancelada' && !isEventArchived(ev, now)) {
+          const barPolicy = getBarCancellationPolicyState({
+            event: ev,
+            reservations: publicEventReservationsRef.current,
+            nowMs: now,
+          });
+          if (barPolicy.canCancel) {
+            pushDeduplicatedAlert(`bar:${ev.id}:d${barPolicy.daysRemainingCeil}`, {
+              title: '⏳ Plazo de cancelación del Bar',
+              message: `Quedan ${barPolicy.remainingLabel} para poder cancelar "${ev.title}" (límite ${barPolicy.deadlineFormatted}).`,
+              timestamp: 'Recién',
+              read: false,
+              type: 'system',
+              targetRole: 'bar',
+              targetEntityId: ev.venueId,
+            });
+          } else if (barPolicy.code === 'deadline_expired') {
+            pushDeduplicatedAlert(`bar:${ev.id}:expired`, {
+              title: '🔒 Venció el plazo para cancelar',
+              message: `Se cumplió la fecha límite de cancelación para "${ev.title}". Ante urgencias escribí a ${ADMIN_URGENCY_EMAIL}.`,
+              timestamp: 'Recién',
+              read: false,
+              type: 'system',
+              targetRole: 'bar',
+              targetEntityId: ev.venueId,
+            });
+          }
+        }
+
         const hasConfirmedMusician = ev.slots.some((s) => Boolean(s.assignedMusicianId));
         if (
           (ev.status === 'publicada' || ev.status === 'agotada' || ev.status === 'archivado') &&
@@ -2986,12 +3304,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
       });
+
+      slotBidsRef.current.forEach((bid) => {
+        if (!isActiveSlotBid(bid) || bid.cancelDaysBefore === undefined) return;
+        const ev = nextEvents.find((e) => e.id === bid.eventId);
+        if (!ev || ev.status === 'cancelada' || isEventArchived(ev, now)) return;
+        const musPolicy = getMusicianCancellationPolicyState({
+          bid,
+          event: ev,
+          nowMs: now,
+        });
+        if (musPolicy.canCancel) {
+          pushDeduplicatedAlert(`mus:${bid.id}:d${musPolicy.daysRemainingCeil}`, {
+            title: '⏳ Plazo para retractarte',
+            message: `Te quedan ${musPolicy.remainingLabel} para poder cancelar tu participación en "${ev.title}" (${ev.venueName}).`,
+            timestamp: 'Recién',
+            read: false,
+            type: 'system',
+            targetRole: 'musico',
+            targetEntityId: bid.musicianId,
+          });
+        } else if (musPolicy.code === 'deadline_expired') {
+          pushDeduplicatedAlert(`mus:${bid.id}:expired`, {
+            title: '🔒 Venció tu plazo de retracción',
+            message: `Venció el plazo configurado para cancelar en "${ev.title}". Ante urgencias enviá solicitud a ${ADMIN_URGENCY_EMAIL}.`,
+            timestamp: 'Recién',
+            read: false,
+            type: 'system',
+            targetRole: 'musico',
+            targetEntityId: bid.musicianId,
+          });
+        }
+      });
+
+      if (alertsCacheDirty) {
+        try {
+          localStorage.setItem(
+            'degira:cancel_alerts_sent:v1',
+            JSON.stringify(Array.from(sentCancelAlertsRef.current).slice(-200))
+          );
+        } catch {
+          // ignore
+        }
+      }
+      if (newPolicyAlerts.length > 0) {
+        setNotifications((prev) => [...newPolicyAlerts, ...prev]);
+      }
     };
 
     runLifecycleMaintenance();
     const interval = setInterval(runLifecycleMaintenance, 30000);
     return () => clearInterval(interval);
-  }, [eventProposals, firebaseUser]);
+  }, [eventProposals, slotBids, firebaseUser]);
 
   const logout = () => {
     clearActiveSession();
@@ -3050,6 +3414,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         publishEventProposal,
         approveAndPublishEvent,
         cancelEventProposal,
+        sendAdminUrgency,
         addNewVenue,
         saveVenueRiderTemplate,
         liquidateMusicianCachet,

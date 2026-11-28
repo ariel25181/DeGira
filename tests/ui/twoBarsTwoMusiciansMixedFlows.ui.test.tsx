@@ -435,6 +435,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Guitarras',
           equipmentNeeded: 'Mic',
           status: 'pendiente_bar',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:00:00Z',
         },
@@ -456,7 +457,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: /Retractarme \(hasta 24hs antes\)/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Retractarme/i }));
       });
       screen.getByText(/¿Liberar horario\?/i);
       await act(async () => {
@@ -491,6 +492,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Guitarras',
           equipmentNeeded: 'Mic',
           status: 'pendiente_bar',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:00:00Z',
         },
@@ -503,7 +505,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
       fireEvent.click(screen.getByRole('button', { name: /Mis Postulaciones/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Retractarme \(hasta 24hs antes\)/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Retractarme/i }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/i }));
@@ -531,6 +533,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Guitarras',
           equipmentNeeded: 'Mic',
           status: 'pendiente_bar',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:00:00Z',
         },
@@ -551,7 +554,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
       fireEvent.click(screen.getByRole('button', { name: /Mis Postulaciones/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Retractarme \(hasta 24hs antes\)/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Retractarme/i }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Confirmar Retracción/i }));
@@ -584,6 +587,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Guitarras',
           equipmentNeeded: 'Mic',
           status: 'pendiente_bar',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:00:00Z',
         },
@@ -599,6 +603,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Bajo',
           equipmentNeeded: 'Ampli',
           status: 'pendiente_bar',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:05:00Z',
         },
@@ -620,7 +625,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
       fireEvent.click(screen.getByRole('button', { name: /Mis Postulaciones/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Retractarme \(hasta 24hs antes\)/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Retractarme/i }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Confirmar Retracción/i }));
@@ -658,6 +663,7 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
           equipmentProvided: 'Guitarras',
           equipmentNeeded: 'Mic',
           status: 'aceptada',
+          cancelDaysBefore: 1,
           history: [],
           createdAt: '2026-11-18T12:00:00Z',
         },
@@ -671,7 +677,8 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
     });
 
     assert.strictEqual(screen.queryByRole('button', { name: /Retractarme/i }), null);
-    screen.getByText(/Retracción no disponible \(faltan < 24hs para el show\)/i);
+    screen.getByText(/Venció el plazo para cancelar/i);
+    screen.getByTestId('musician-urgency-btn-bid-soon');
   });
 
   it('56. UI shows inline validation error if counteroffer amount is <= 0 instead of closing form', async () => {
@@ -779,5 +786,80 @@ describe('2 Bars × 2 Musicians Full Mixed E2E Edge Cases', () => {
     assert.ok(names.includes('Músico Test 2'));
     assert.strictEqual(names.includes('Thelonious'), false);
     assert.strictEqual(names.includes('Julieta'), false);
+  });
+
+  it('59. Musician bid without cancelDaysBefore shows only Admin Urgency (to ariel.najlis@gmail.com) and bid with cancelDaysBefore shows Retractarme', async () => {
+    makeTwoBarState();
+    localStorage.setItem('suena_ba_v3_slotBids', JSON.stringify([]));
+    await renderHarness();
+    await switchActor('ActAsMus1');
+
+    // Submit Bid 1 WITHOUT cancelDaysBefore
+    const applyBtns = screen.getAllByRole('button', { name: /Cubrir este Horario/i });
+    await act(async () => {
+      fireEvent.click(applyBtns[0]);
+    });
+    const daysInput1 = screen.getByTestId('musician-bid-cancel-days-input') as HTMLInputElement;
+    assert.strictEqual(daysInput1.value, '');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enviar Propuesta al Bar/i }));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1700));
+    });
+
+    // Submit Bid 2 WITH cancelDaysBefore = 5
+    const applyBtns2 = screen.getAllByRole('button', { name: /Cubrir este Horario/i });
+    await act(async () => {
+      fireEvent.click(applyBtns2[0]);
+    });
+    const daysInput2 = screen.getByTestId('musician-bid-cancel-days-input') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(daysInput2, { target: { value: '5' } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enviar Propuesta al Bar/i }));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1700));
+    });
+
+    const bids = JSON.parse(localStorage.getItem('suena_ba_v3_slotBids') || '[]');
+    assert.strictEqual(bids.length, 2);
+    const noDaysBid = bids.find((b: any) => b.cancelDaysBefore === undefined);
+    const withDaysBid = bids.find((b: any) => b.cancelDaysBefore === 5);
+    assert.ok(noDaysBid);
+    assert.ok(withDaysBid);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Mis Postulaciones/i }));
+    });
+
+    // With days -> Retractarme visible
+    screen.getByTestId(`musician-retract-btn-${withDaysBid.id}`);
+    // Without days -> Admin Urgency button only, no Retractarme
+    assert.strictEqual(screen.queryByTestId(`musician-retract-btn-${noDaysBid.id}`), null);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`musician-urgency-btn-${noDaysBid.id}`));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId(`musician-urgency-input-${noDaysBid.id}`), {
+        target: { value: 'Emergencia médica de baterista' },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`musician-send-urgency-${noDaysBid.id}`));
+    });
+
+    const emails = JSON.parse(localStorage.getItem('degira:sent_emails:v1') || '[]');
+    assert.ok(
+      emails.some(
+        (e: any) =>
+          e.to === 'ariel.najlis@gmail.com' &&
+          e.type === 'admin_urgency' &&
+          e.subject.includes('Urgencia') &&
+          e.bodyText.includes('Emergencia médica de baterista')
+      )
+    );
   });
 });

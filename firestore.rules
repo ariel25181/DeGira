@@ -90,7 +90,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'venueId', 'venueName', 'venueAddress', 'venueNeighborhood', 'venuePhoto',
           'title', 'date', 'startTime', 'endTime', 'totalCapacity', 'remainingCapacity',
-          'baseCachetARS', 'cachetType', 'ticketPriceARS', 'targetGenres', 'slots', 'rider', 'status',
+          'baseCachetARS', 'cachetType', 'ticketPriceARS', 'cancelDaysBefore', 'targetGenres', 'slots', 'rider', 'status',
           'eventCode', 'waitlist', 'cachetPaid', 'cachetPaidAt', 'feedbackSentAt',
           'cancelledAt', 'lastActionAt', 'lastActionSummary', 'lastActionActor',
           'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
@@ -111,6 +111,7 @@ service cloud.firestore {
         && (!('cachetType' in data) || data.cachetType in ['fijo', 'a_la_gorra'])
         && (!('cachetType' in data) || data.cachetType != 'a_la_gorra' || data.baseCachetARS == 0)
         && (!('ticketPriceARS' in data) || (data.ticketPriceARS is number && data.ticketPriceARS >= 0))
+        && (!('cancelDaysBefore' in data) || (data.cancelDaysBefore is number && data.cancelDaysBefore >= 0 && data.cancelDaysBefore <= 365))
         && (!('targetGenres' in data) || isBoundedStringList(data.targetGenres, 12))
         && data.slots is list && data.slots.size() >= 1 && data.slots.size() <= 20 && data.slots[0] is map
         && data.rider is map
@@ -142,7 +143,7 @@ service cloud.firestore {
           'id', 'eventId', 'slotId', 'musicianId', 'musicianName', 'musicianAvatar',
           'proposedCachetARS', 'cachetType', 'musiciansCount', 'equipmentProvided', 'equipmentNeeded',
           'musicLinks', 'inputList', 'reminderSentAt', 'reminderCount',
-          'retracted', 'retractedAt', 'status', 'history',
+          'retracted', 'retractedAt', 'cancelDaysBefore', 'status', 'history',
           'visibility', 'ownerUid', 'createdAt', 'createdAtTimestamp', 'updatedAtTimestamp'
         ])
         && isValidId(data.id)
@@ -166,6 +167,7 @@ service cloud.firestore {
         && (!('reminderCount' in data) || (data.reminderCount is number && data.reminderCount >= 0))
         && (!('retracted' in data) || data.retracted is bool)
         && isOptionalBoundedString(data, 'retractedAt', 60)
+        && (!('cancelDaysBefore' in data) || (data.cancelDaysBefore is number && data.cancelDaysBefore >= 0 && data.cancelDaysBefore <= 365))
         && data.status in ['pendiente_bar', 'contraoferta_bar', 'contraoferta_musico', 'aceptada', 'rechazada']
         && data.history is list && data.history.size() <= 50 && (data.history.size() == 0 || data.history[0] is map)
         && data.visibility == 'public'
@@ -453,7 +455,10 @@ service cloud.firestore {
         && isValidReservation(incoming())
         && incoming().id == resId
         && incoming().ownerUid == request.auth.uid
-        && incoming().status == 'pendiente_pago'
+        && (
+          incoming().status == 'pendiente_pago'
+          || (incoming().totalARS == 0 && incoming().status == 'confirmada')
+        )
         && incoming().createdAtTimestamp == request.time
         && incoming().updatedAtTimestamp == request.time
         && exists(/databases/$(database)/documents/eventProposals/$(incoming().eventId));

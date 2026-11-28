@@ -1749,7 +1749,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   (r) => r.eventId === p.id && r.status === 'confirmada'
                 );
                 const attendees = confirmed.reduce((sum, r) => sum + r.partySize, 0);
-                return acc + attendees * (p.ticketPriceARS || 8000);
+                return acc + attendees * (p.ticketPriceARS ?? 8000);
               }, 0);
 
               const totalCachets = venueEvents.reduce((acc, p) => acc + (p.baseCachetARS || 0), 0);
@@ -1793,7 +1793,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   (r) => r.eventId === p.id && r.status === 'confirmada'
                 );
                 const attendees = confirmed.reduce((sum, r) => sum + r.partySize, 0);
-                const ticketPrice = p.ticketPriceARS || 8000;
+                const ticketPrice = p.ticketPriceARS ?? 8000;
                 const grossRevenue = attendees * ticketPrice;
                 const netMargin = grossRevenue - p.baseCachetARS;
                 const musicianNames = p.slots.map((s) => s.assignedMusicianName).filter(Boolean).join(', ') || 'Artista Convocado';
@@ -1834,7 +1834,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
                       <div className="text-right">
                         <span className="text-[10px] text-slate-400 block uppercase font-medium">Precio Entrada</span>
-                        <span className="text-sm font-black text-amber-400">{formatARS(ticketPrice)} / pers</span>
+                        <span className="text-sm font-black text-amber-400">
+                          {ticketPrice === 0 ? 'Gratis ($ 0)' : `${formatARS(ticketPrice)} / pers`}
+                        </span>
                       </div>
                     </div>
 

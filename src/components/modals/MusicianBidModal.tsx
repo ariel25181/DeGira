@@ -50,6 +50,7 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
     'Batería armada, ampli de bajo y 2 micrófonos Shure'
   );
   const [note, setNote] = useState<string>('');
+  const [cancelDaysBeforeText, setCancelDaysBeforeText] = useState<string>('');
   const [clashConfirmedByUser, setClashConfirmedByUser] = useState<boolean>(false);
   const [sentSuccess, setSentSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -103,6 +104,7 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
     setCounterCachetText(event.baseCachetARS > 0 ? String(event.baseCachetARS) : '70000');
     setMusiciansCount(slot.requiredMusicians || currentMusician?.membersCount || 2);
     setNote('');
+    setCancelDaysBeforeText('');
     setClashConfirmedByUser(false);
     setSubmitError(null);
     setSentSuccess(false);
@@ -230,6 +232,16 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
         ? 'De acuerdo con el caché propuesto por el bar.'
         : `Contrapropuesta de caché: ${formatARS(finalProposedCachet)}`;
 
+    let parsedCancelDays: number | undefined;
+    if (cancelDaysBeforeText.trim() !== '') {
+      const n = Number(cancelDaysBeforeText);
+      if (!Number.isFinite(n) || n < 0 || n > 365 || !Number.isInteger(n)) {
+        setSubmitError('Ingresá una cantidad entera de días (0 a 365) para poder cancelar, o dejalo vacío.');
+        return;
+      }
+      parsedCancelDays = n;
+    }
+
     const result = submitSlotBid({
       eventId: event.id,
       slotId: slot.id,
@@ -241,6 +253,7 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
       musicLinks,
       inputList,
       initialNote: note.trim() || defaultNote,
+      ...(parsedCancelDays !== undefined ? { cancelDaysBefore: parsedCancelDays } : {}),
     });
 
     if (!result.ok) {
@@ -544,6 +557,31 @@ export const MusicianBidModal: React.FC<MusicianBidModalProps> = ({
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Optional cancellation deadline */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+                <label
+                  htmlFor="musician-bid-cancel-days-input"
+                  className="font-bold text-slate-200 block text-xs"
+                >
+                  Días previos límite para cancelar (Opcional):
+                </label>
+                <input
+                  id="musician-bid-cancel-days-input"
+                  data-testid="musician-bid-cancel-days-input"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={365}
+                  placeholder="Ej: 7 (vacío = sin cancelación directa)"
+                  value={cancelDaysBeforeText}
+                  onChange={(e) => setCancelDaysBeforeText(sanitizeNumericInput(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-amber-300 focus:border-amber-500 outline-none"
+                />
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Si no ingresás días, o al vencer el plazo configurado, se quitará el botón para retractarte y solo podrás enviar una urgencia al administrador (<strong>ariel.najlis@gmail.com</strong>).
+                </p>
               </div>
 
               {/* Note */}

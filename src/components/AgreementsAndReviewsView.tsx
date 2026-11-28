@@ -27,6 +27,8 @@ import {
   isEventArchived,
   getEffectiveEventStatus,
   getBidLastActionInfo,
+  getMusicianCancellationPolicyState,
+  ADMIN_URGENCY_EMAIL,
 } from '../utils/slotBidding.ts';
 import type { CachetMode, EventProposal } from '../types/index.ts';
 
@@ -69,6 +71,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     slotBids,
     sendMusicianProposalReminder,
     retractMusicianSlotBid,
+    sendAdminUrgency,
     respondToSlotBid,
   } = useApp();
 
@@ -86,6 +89,10 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const [counterMusiciansCount, setCounterMusiciansCount] = useState<number>(2);
   const [counterNote, setCounterNote] = useState<string>('');
   const [confirmRetractBidId, setConfirmRetractBidId] = useState<string | null>(null);
+  const [urgencyBidId, setUrgencyBidId] = useState<string | null>(null);
+  const [urgencyReason, setUrgencyReason] = useState<string>('');
+  const [urgencyError, setUrgencyError] = useState<string | null>(null);
+  const [nowTickMs, setNowTickMs] = useState<number>(() => Date.now());
   const [negError, setNegError] = useState<string | null>(null);
   const [barBidFilter, setBarBidFilter] = useState<
     'todas' | 'pendientes' | 'acordadas' | 'rechazadas' | 'archivadas'
@@ -93,6 +100,11 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
   const [musicianAppFilter, setMusicianAppFilter] = useState<
     'todas' | 'pendientes' | 'contraoferta' | 'acordadas' | 'cerradas_archivadas'
   >('todas');
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTickMs(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
 
   // Keep sub-tabs strictly scoped to the active role (bar vs musico) & clear ephemeral inputs on switch
   useEffect(() => {
@@ -105,6 +117,9 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
     setCounterCachetType('fijo');
     setRetractionFeedback(null);
     setConfirmRetractBidId(null);
+    setUrgencyBidId(null);
+    setUrgencyReason('');
+    setUrgencyError(null);
     setNegError(null);
     setBarBidFilter('todas');
     setMusicianAppFilter('todas');
@@ -1206,10 +1221,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                 const slot = event?.slots.find((s) => s.id === bid.slotId);
                 const eventStartTime = slot?.startTime || event?.startTime || '21:00';
                 const eventDateStr = event?.date || offsetIsoDate(0);
-                const eventDateTime = new Date(`${eventDateStr}T${eventStartTime}`).getTime();
-                const now = Date.now();
-                const hoursRemaining = (eventDateTime - now) / (1000 * 60 * 60);
-                const isArchivedEv = Boolean(event && isEventArchived(event));
+                const isArchivedEv = Boolean(event && isEventArchived(event, nowTickMs));
                 const isCancelledEv = event?.status === 'cancelada';
                 const eventAllowsAction =
                   !event || (!isArchivedEv && (event.status === 'propuesta' || event.status === 'para_publicar'));
@@ -1219,12 +1231,14 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                   bid.status !== 'rechazada' &&
                   !eventAllowsAction;
                 const isReadOnlyEv = isArchivedEv || isCancelledEv;
-                const canRetract =
-                  !isReadOnlyEv &&
-                  hoursRemaining >= 24 &&
-                  !bid.retracted &&
-                  bid.status !== 'rechazada' &&
-                  !isClosedByPublish;
+                const musCancelPolicy = event
+                  ? getMusicianCancellationPolicyState({
+                      bid,
+                      event,
+                      nowMs: nowTickMs,
+                    })
+                  : null;
+                const canRetract = Boolean(musCancelPolicy?.canCancel && !isClosedByPublish);
                 const bidLastAction = getBidLastActionInfo(bid, event);
 
                 // Check overlapping time clash with another active bid or confirmed show of this musician
@@ -1453,7 +1467,7 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                             </div>
                           )}
 
-                          {/* Retraction button enforcing 24h rule (no window.confirm) */}
+                          {/* Retraction button enforcing musician cancelDaysBefore policy or Admin Urgency */}
                           <div>
                             {canRetract ? (
                               confirmRetractBidId === bid.id ? (
@@ -1483,24 +1497,110 @@ export const AgreementsAndReviewsView: React.FC<AgreementsAndReviewsViewProps> =
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => setConfirmRetractBidId(bid.id)}
+                                  data-testid={`musician-retract-btn-${bid.id}`}
+                                  onClick={() => {
+                                    setConfirmRetractBidId(bid.id);
+                                    setUrgencyBidId(null);
+                                  }}
                                   className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/30 text-rose-300 border border-slate-700 hover:border-rose-500/40 text-xs font-semibold flex items-center gap-1 transition-all"
                                 >
                                   <RotateCcw className="w-3.5 h-3.5" />
-                                  <span>Retractarme (hasta 24hs antes)</span>
+                                  <span>Retractarme ({musCancelPolicy?.remainingLabel})</span>
                                 </button>
                               )
-                            ) : (
-                              <span
-                                className="text-[11px] text-slate-500 italic flex items-center gap-1 cursor-not-allowed"
-                                title="La app prohíbe retractarse con menos de 24 horas de antelación al inicio del show"
+                            ) : musCancelPolicy?.urgentOnly ? (
+                              <button
+                                type="button"
+                                data-testid={`musician-urgency-btn-${bid.id}`}
+                                onClick={() => {
+                                  setUrgencyBidId(urgencyBidId === bid.id ? null : bid.id);
+                                  setConfirmRetractBidId(null);
+                                  setUrgencyReason('');
+                                  setUrgencyError(null);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1 transition-all"
                               >
-                                <Clock className="w-3.5 h-3.5 text-slate-600" />
-                                <span>Retracción no disponible (faltan &lt; 24hs para el show)</span>
-                              </span>
-                            )}
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Enviar urgencia al administrador</span>
+                              </button>
+                            ) : null}
                           </div>
                         </div>
+
+                        {musCancelPolicy && (
+                          <div
+                            data-testid={`musician-cancel-policy-${bid.id}`}
+                            className={`px-3 py-1.5 rounded-xl border text-[11px] flex items-start gap-2 ${
+                              musCancelPolicy.canCancel
+                                ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                                : 'bg-amber-950/30 border-amber-500/30 text-amber-200'
+                            }`}
+                          >
+                            <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>{musCancelPolicy.reason}</span>
+                          </div>
+                        )}
+
+                        {musCancelPolicy?.urgentOnly && urgencyBidId === bid.id && event && (
+                          <div
+                            data-testid={`musician-urgency-panel-${bid.id}`}
+                            className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 space-y-2"
+                          >
+                            <p className="text-xs font-bold text-amber-200">
+                              Enviar solicitud urgente al administrador ({ADMIN_URGENCY_EMAIL}) por "{event.title}":
+                            </p>
+                            <input
+                              type="text"
+                              data-testid={`musician-urgency-input-${bid.id}`}
+                              placeholder="Describí el motivo de fuerza mayor o urgencia..."
+                              value={urgencyReason}
+                              onChange={(e) => setUrgencyReason(e.target.value)}
+                              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100"
+                            />
+                            {urgencyError && (
+                              <p className="text-[11px] text-rose-400 font-semibold">{urgencyError}</p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                data-testid={`musician-send-urgency-${bid.id}`}
+                                onClick={() => {
+                                  const res = sendAdminUrgency({
+                                    eventId: event.id,
+                                    bidId: bid.id,
+                                    reason: urgencyReason,
+                                  });
+                                  if (res.ok) {
+                                    setUrgencyBidId(null);
+                                    setUrgencyReason('');
+                                    setUrgencyError(null);
+                                    setRetractionFeedback({
+                                      id: bid.id,
+                                      msg: res.message,
+                                      success: true,
+                                    });
+                                  } else {
+                                    setUrgencyError(res.message);
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
+                              >
+                                Enviar a {ADMIN_URGENCY_EMAIL}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUrgencyBidId(null);
+                                  setUrgencyReason('');
+                                  setUrgencyError(null);
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {bid.status === 'contraoferta_bar' && counterInputId === bid.id && (
                           <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2.5 animate-in fade-in">

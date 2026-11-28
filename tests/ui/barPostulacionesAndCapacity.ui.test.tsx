@@ -520,6 +520,7 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
           ],
           rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
           status: 'propuesta',
+          cancelDaysBefore: 5,
           eventCode: 'DG-FUT-1',
           createdAt: offsetIsoDate(-2),
         },
@@ -626,6 +627,249 @@ describe('Bar Payment Capacity Reduction & Role-Scoped Postulaciones', () => {
     });
     screen.getByTestId('bar-bid-last-action-bid-fut-1');
     assert.strictEqual(screen.queryByRole('button', { name: /Aceptar Propuesta/i }), null);
+  });
+
+  it('enforces Bar no-days urgency-only, paid-ticket lock, and cancels free events while notifying musicians & spectators', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem(
+      'suena_ba_v3_eventProposals',
+      JSON.stringify([
+        {
+          id: 'ev-no-days-ui',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Show Sin Días Configurados',
+          date: offsetIsoDate(10),
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 80,
+          baseCachetARS: 60000,
+          ticketPriceARS: 0,
+          targetGenres: ['Jazz'],
+          slots: [{ id: 's-nd-1', startTime: '21:00', endTime: '22:00', requiredMusicians: 2, status: 'libre' }],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'propuesta',
+          eventCode: 'DG-ND-1',
+          createdAt: offsetIsoDate(-1),
+        },
+        {
+          id: 'ev-paid-sold-ui',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Show Pago Con Entradas',
+          date: offsetIsoDate(14),
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 78,
+          baseCachetARS: 60000,
+          ticketPriceARS: 5000,
+          cancelDaysBefore: 7,
+          targetGenres: ['Jazz'],
+          slots: [
+            {
+              id: 's-ps-1',
+              startTime: '21:00',
+              endTime: '22:00',
+              requiredMusicians: 2,
+              status: 'confirmado',
+              assignedMusicianId: 'mus-1',
+              assignedMusicianName: 'Músico Test 1',
+              agreedCachetARS: 60000,
+            },
+          ],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'publicada',
+          eventCode: 'DG-PS-1',
+          createdAt: offsetIsoDate(-1),
+        },
+        {
+          id: 'ev-free-cancel-ui',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          venuePhoto: '',
+          title: 'Show Gratis Cancelable',
+          date: offsetIsoDate(15),
+          startTime: '21:00',
+          endTime: '23:30',
+          totalCapacity: 80,
+          remainingCapacity: 78,
+          baseCachetARS: 0,
+          cachetType: 'a_la_gorra',
+          ticketPriceARS: 0,
+          cancelDaysBefore: 7,
+          targetGenres: ['Rock'],
+          slots: [
+            {
+              id: 's-fc-1',
+              startTime: '21:00',
+              endTime: '22:00',
+              requiredMusicians: 2,
+              status: 'confirmado',
+              assignedMusicianId: 'mus-1',
+              assignedMusicianName: 'Músico Test 1',
+              agreedCachetARS: 0,
+              agreedCachetType: 'a_la_gorra',
+            },
+          ],
+          rider: { stageSize: '5x4', soundSystem: 'Consola', micCount: 4, backline: [], lighting: 'LED' },
+          status: 'publicada',
+          eventCode: 'DG-FC-1',
+          createdAt: offsetIsoDate(-1),
+        },
+      ])
+    );
+    localStorage.setItem(
+      'suena_ba_v3_slotBids',
+      JSON.stringify([
+        {
+          id: 'bid-free-conf',
+          eventId: 'ev-free-cancel-ui',
+          slotId: 's-fc-1',
+          musicianId: 'mus-1',
+          musicianName: 'Músico Test 1',
+          musicianAvatar: '',
+          proposedCachetARS: 0,
+          cachetType: 'a_la_gorra',
+          musiciansCount: 2,
+          equipmentProvided: 'Guitarra',
+          equipmentNeeded: 'Mic',
+          status: 'aceptada',
+          history: [],
+          createdAt: new Date().toISOString(),
+        },
+      ])
+    );
+    localStorage.setItem(
+      'suena_ba_v3_publicEventReservations',
+      JSON.stringify([
+        {
+          id: 'res-paid-1',
+          eventId: 'ev-paid-sold-ui',
+          eventTitle: 'Show Pago Con Entradas',
+          eventCode: 'DG-PS-1',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          eventDate: offsetIsoDate(14),
+          eventTime: '21:00 a 23:30 hs',
+          musiciansSummary: 'Músico Test 1',
+          userId: 'user-paid-1',
+          userName: 'Juan Público',
+          userEmail: 'juan.pago@example.com',
+          partySize: 2,
+          unitPriceARS: 5000,
+          totalARS: 10000,
+          status: 'confirmada',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'res-free-1',
+          eventId: 'ev-free-cancel-ui',
+          eventTitle: 'Show Gratis Cancelable',
+          eventCode: 'DG-FC-1',
+          venueId: 'venue-1',
+          venueName: 'Bar Test 1',
+          venueAddress: 'Honduras 4800',
+          venueNeighborhood: 'Palermo Soho',
+          eventDate: offsetIsoDate(15),
+          eventTime: '21:00 a 23:30 hs',
+          musiciansSummary: 'Músico Test 1',
+          userId: 'user-free-1',
+          userName: 'Lucía Gratis',
+          userEmail: 'lucia.gratis@example.com',
+          partySize: 2,
+          unitPriceARS: 0,
+          totalARS: 0,
+          status: 'confirmada',
+          qrTicketCode: 'DG-QR-FREE-1',
+          qrEmailSent: true,
+          checkInStatus: 'pendiente',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+    );
+
+    await act(async () => {
+      render(
+        <AppProvider>
+          <SessionProvider client={mockClient}>
+            <OpenCallsView onViewVenue={() => {}} onViewMusician={() => {}} />
+          </SessionProvider>
+        </AppProvider>
+      );
+    });
+
+    // 1. No-days event shows urgency button only (no cancel button)
+    assert.strictEqual(screen.queryByTestId('bar-cancel-event-ev-no-days-ui'), null);
+    screen.getByTestId('bar-urgency-btn-ev-no-days-ui');
+
+    // 2. Paid event with sold tickets locks direct cancel even with cancelDaysBefore: 7 -> urgency button only
+    assert.strictEqual(screen.queryByTestId('bar-cancel-event-ev-paid-sold-ui'), null);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-urgency-btn-ev-paid-sold-ui'));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('bar-urgency-input-ev-paid-sold-ui'), {
+        target: { value: 'Corte eléctrico en la cuadra' },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-send-urgency-ev-paid-sold-ui'));
+    });
+
+    // 3. Free event with confirmed free reservation CAN be cancelled directly within cancelDaysBefore
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-cancel-event-ev-free-cancel-ui'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('bar-confirm-cancel-event-ev-free-cancel-ui'));
+    });
+    screen.getByTestId('event-readonly-banner-ev-free-cancel-ui');
+
+    // Free reservation marked cancelada
+    const storedRes = JSON.parse(localStorage.getItem('suena_ba_v3_publicEventReservations') || '[]');
+    assert.strictEqual(storedRes.find((r: any) => r.id === 'res-free-1')?.status, 'cancelada');
+
+    // Emails sent: admin urgency + cancelled emails to musician and spectator
+    const emails = JSON.parse(localStorage.getItem('degira:sent_emails:v1') || '[]');
+    assert.ok(
+      emails.some(
+        (e: any) =>
+          e.to === 'ariel.najlis@gmail.com' &&
+          e.type === 'admin_urgency' &&
+          e.subject.includes('Urgencia')
+      )
+    );
+    assert.ok(
+      emails.some(
+        (e: any) =>
+          e.to === 'lucia.gratis@example.com' &&
+          e.type === 'event_cancelled_notice' &&
+          e.subject.includes('Evento cancelado')
+      )
+    );
+    assert.ok(
+      emails.some(
+        (e: any) =>
+          e.targetRole === 'musico' &&
+          e.type === 'event_cancelled_notice' &&
+          e.subject.includes('Evento cancelado') &&
+          e.bodyText.includes('Músico Test 1')
+      )
+    );
   });
 });
 

@@ -77,7 +77,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   // Quick booking state modal
   const [reservingEvent, setReservingEvent] = useState<EventProposal | null>(null);
   const [selectedPartySize, setSelectedPartySize] = useState<number>(2);
-  const [bookingSuccessCode, setBookingSuccessCode] = useState<string | null>(null);
+  const [bookingSuccessInfo, setBookingSuccessInfo] = useState<{
+    code: string;
+    qrCode?: string;
+    isFree: boolean;
+  } | null>(null);
 
   // Modal para consultar reseñas del bar, últimos 10 eventos y músicos
   const [inspectingVenueEvent, setInspectingVenueEvent] = useState<EventProposal | null>(null);
@@ -111,7 +115,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   const handleStartReservation = (event: EventProposal) => {
     setReservingEvent(event);
     setSelectedPartySize(Math.min(2, Math.max(1, event.remainingCapacity)));
-    setBookingSuccessCode(null);
+    setBookingSuccessInfo(null);
   };
 
   const handleConfirmReservation = (e: React.FormEvent) => {
@@ -119,7 +123,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
     if (!reservingEvent) return;
 
     const res = createPublicEventReservation(reservingEvent.id, selectedPartySize);
-    setBookingSuccessCode(res.eventCode);
+    setBookingSuccessInfo({
+      code: res.eventCode,
+      qrCode: res.qrTicketCode,
+      isFree: (reservingEvent.ticketPriceARS ?? 8000) === 0 || res.status === 'confirmada',
+    });
   };
 
   return (
@@ -238,6 +246,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
           publicEvents.map((event) => {
             const isAgotada = event.status === 'agotada' || event.remainingCapacity <= 0;
             const slotLineup = getConfirmedSlotLineup(event.slots);
+            const ticketPrice = event.ticketPriceARS ?? 8000;
+            const isFreeEvent = ticketPrice === 0;
 
             return (
               <div
@@ -356,9 +366,20 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Código del Bar</span>
-                      <span className="font-mono text-xs font-bold text-amber-400">{event.eventCode}</span>
+                    <div className="text-right space-y-0.5">
+                      <span
+                        data-testid={`catalog-price-${event.id}`}
+                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                          isFreeEvent
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                            : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                        }`}
+                      >
+                        {isFreeEvent ? '🎫 Entrada Gratis ($ 0)' : `Entrada ${formatARS(ticketPrice)}`}
+                      </span>
+                      <span className="font-mono text-[11px] font-bold text-amber-400 block">
+                        {event.eventCode}
+                      </span>
                     </div>
                   </div>
 
@@ -385,7 +406,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         className="flex-1 py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center space-x-1.5"
                       >
                         <Ticket className="w-3.5 h-3.5" />
-                        <span>Reservar Lugar (8 Minutos para Pagar)</span>
+                        <span>
+                          {isFreeEvent
+                            ? 'Reservar Lugar Gratis (QR al instante)'
+                            : 'Reservar Lugar (8 Minutos para Pagar)'}
+                        </span>
                       </button>
                     )}
 
@@ -438,35 +463,69 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
 
             {/* Body */}
             <div className="p-5 space-y-4 text-xs text-slate-300">
-              {bookingSuccessCode ? (
-                <div className="text-center py-5 space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
-                    <CheckCircle className="w-6 h-6 stroke-[2.5]" />
+              {bookingSuccessInfo ? (
+                bookingSuccessInfo.isFree ? (
+                  <div className="text-center py-5 space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
+                      <CheckCircle className="w-6 h-6 stroke-[2.5]" />
+                    </div>
+                    <h4 className="text-base font-black text-slate-100">
+                      ¡Entrada Gratis Confirmada con Pase QR!
+                    </h4>
+                    <div className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/40 space-y-2">
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold">
+                        Pase QR Oficial (Confirmado al instante):
+                      </div>
+                      <div
+                        data-testid="free-ticket-qr-code"
+                        className="text-sm font-mono font-black text-emerald-300 break-all"
+                      >
+                        {bookingSuccessInfo.qrCode || bookingSuccessInfo.code}
+                      </div>
+                      <div className="text-xs font-bold text-emerald-300">
+                        🎟️ Total: $ 0 (Gratis) • Ya podés mostrar tu QR en puerta.
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      También te enviamos el pase por correo y quedó guardado en <strong>"Mis Reservas"</strong>.
+                    </p>
+                    <button
+                      onClick={() => setReservingEvent(null)}
+                      className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all"
+                    >
+                      Entendido, ver mi pase QR
+                    </button>
                   </div>
-                  <h4 className="text-base font-black text-slate-100">
-                    ¡Cupo Reservado con Éxito!
-                  </h4>
-                  <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-2">
-                    <div className="text-[11px] text-slate-400 uppercase font-semibold">
-                      Código del bar para transferir:
+                ) : (
+                  <div className="text-center py-5 space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
+                      <CheckCircle className="w-6 h-6 stroke-[2.5]" />
                     </div>
-                    <div className="text-xl font-mono font-black text-amber-400">
-                      {bookingSuccessCode}
+                    <h4 className="text-base font-black text-slate-100">
+                      ¡Cupo Reservado con Éxito!
+                    </h4>
+                    <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-2">
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold">
+                        Código del bar para transferir:
+                      </div>
+                      <div className="text-xl font-mono font-black text-amber-400">
+                        {bookingSuccessInfo.code}
+                      </div>
+                      <div className="text-xs font-bold text-amber-300">
+                        ⏱️ Tenés 8 minutos para realizar el pago y subir el comprobante.
+                      </div>
                     </div>
-                    <div className="text-xs font-bold text-amber-300">
-                      ⏱️ Tenés 8 minutos para realizar el pago y subir el comprobante.
-                    </div>
+                    <p className="text-xs text-slate-400">
+                      Podés subir el comprobante ahora desde la sección <strong>"Mis Reservas"</strong> en tu perfil.
+                    </p>
+                    <button
+                      onClick={() => setReservingEvent(null)}
+                      className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md transition-all"
+                    >
+                      Entendido, ir a mis reservas
+                    </button>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    Podés subir el comprobante ahora desde la sección <strong>"Mis Reservas"</strong> en tu perfil.
-                  </p>
-                  <button
-                    onClick={() => setReservingEvent(null)}
-                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md transition-all"
-                  >
-                    Entendido, ir a mis reservas
-                  </button>
-                </div>
+                )
               ) : (
                 <form onSubmit={handleConfirmReservation} className="space-y-4">
                   <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
@@ -522,25 +581,52 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                   </div>
 
                   {/* Summary of Price */}
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                    <div>
-                      <span className="text-slate-400 text-[11px] block">Total estimado a pagar:</span>
-                      <strong className="text-base text-amber-400 font-black">
-                        {formatARS(8000 * selectedPartySize)}
-                      </strong>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-amber-300 font-bold block">Tiempo para pagar</span>
-                      <span className="text-xs font-bold text-slate-200">8 minutos al reservar</span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const modalUnitPrice = reservingEvent.ticketPriceARS ?? 8000;
+                    const isFreeModal = modalUnitPrice === 0;
+                    return (
+                      <>
+                        <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                          <div>
+                            <span className="text-slate-400 text-[11px] block">Total estimado a pagar:</span>
+                            <strong
+                              data-testid="booking-modal-total"
+                              className={`text-base font-black ${
+                                isFreeModal ? 'text-emerald-400' : 'text-amber-400'
+                              }`}
+                            >
+                              {isFreeModal
+                                ? 'Gratis ($ 0)'
+                                : formatARS(modalUnitPrice * selectedPartySize)}
+                            </strong>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-amber-300 font-bold block">
+                              {isFreeModal ? 'Confirmación' : 'Tiempo para pagar'}
+                            </span>
+                            <span className="text-xs font-bold text-slate-200">
+                              {isFreeModal ? 'QR inmediato al confirmar' : '8 minutos al reservar'}
+                            </span>
+                          </div>
+                        </div>
 
-                  <button
-                    type="submit"
-                    className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
-                  >
-                    <span>Confirmar Reserva y Obtener Código ({selectedPartySize} personas)</span>
-                  </button>
+                        <button
+                          type="submit"
+                          className={`w-full py-3.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center justify-center gap-2 ${
+                            isFreeModal
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                              : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                          }`}
+                        >
+                          <span>
+                            {isFreeModal
+                              ? `Confirmar Entrada Gratis (${selectedPartySize} personas)`
+                              : `Confirmar Reserva y Obtener Código (${selectedPartySize} personas)`}
+                          </span>
+                        </button>
+                      </>
+                    );
+                  })()}
                 </form>
               )}
             </div>

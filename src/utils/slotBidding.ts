@@ -4,10 +4,13 @@ import {
   EventSlot,
   LiveShowConfirmed,
   MusicianSlotBid,
+  PublicEventReservation,
   SlotBidHistoryEntry,
   UserRole,
 } from '../types/index.ts';
-import { getEventEndTimestampMs } from './reviewEligibility.ts';
+import { getEventEndTimestampMs, parseTimeMinutes } from './reviewEligibility.ts';
+
+export const ADMIN_URGENCY_EMAIL = 'ariel.najlis@gmail.com';
 
 export type SlotAvailability = 'libre' | 'bloqueado' | 'confirmado';
 
@@ -58,6 +61,226 @@ export function getEffectiveEventStatus(
   nowMs: number = Date.now()
 ): EventProposal['status'] {
   return isEventArchived(ev, nowMs) ? 'archivado' : ev.status;
+}
+
+export function getEventStartTimestampMs(dateStr: string, startTimeStr?: string): number {
+  const parts = (dateStr || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n) || n <= 0)) {
+    return NaN;
+  }
+  const [year, month, day] = parts;
+  const startMinutes = parseTimeMinutes(startTimeStr) ?? 21 * 60;
+  return new Date(year, month - 1, day, 0, startMinutes, 0, 0).getTime();
+}
+
+export function getCancelDeadlineTimestampMs(
+  dateStr: string,
+  startTimeStr: string | undefined,
+  cancelDaysBefore?: number
+): number | null {
+  if (
+    cancelDaysBefore === undefined ||
+    cancelDaysBefore === null ||
+    typeof cancelDaysBefore !== 'number' ||
+    !Number.isFinite(cancelDaysBefore) ||
+    cancelDaysBefore < 0
+  ) {
+    return null;
+  }
+  const startMs = getEventStartTimestampMs(dateStr, startTimeStr);
+  if (!Number.isFinite(startMs)) return null;
+  return startMs - cancelDaysBefore * 24 * 60 * 60 * 1000;
+}
+
+export function formatRemainingCancelTime(msRemaining: number): string {
+  if (!Number.isFinite(msRemaining) || msRemaining <= 0) return 'Plazo vencido';
+  const totalMinutes = Math.floor(msRemaining / 60000);
+  if (totalMinutes < 1) return 'menos de 1 min';
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const mins = totalMinutes % 60;
+  if (days >= 1) {
+    return hours > 0
+      ? `${days} ${days === 1 ? 'día' : 'días'} y ${hours} hs`
+      : `${days} ${days === 1 ? 'día' : 'días'}`;
+  }
+  if (hours >= 1) {
+    return mins > 0 ? `${hours} hs y ${mins} min` : `${hours} hs`;
+  }
+  return `${mins} min`;
+}
+
+export function hasEventPurchasedPaidTickets(
+  event: Pick<EventProposal, 'id' | 'ticketPriceARS'>,
+  reservations: Array<Pick<PublicEventReservation, 'eventId' | 'status' | 'totalARS'>> = []
+): boolean {
+  const price = event.ticketPriceARS ?? 0;
+  if (price <= 0) return false;
+  return reservations.some(
+    (r) =>
+      r.eventId === event.id &&
+      r.status !== 'cancelada' &&
+      r.status !== 'expirada'
+  );
+}
+
+export interface CancellationPolicyState {
+  canCancel: boolean;
+  urgentOnly: boolean;
+  code:
+    | 'allowed'
+    | 'read_only'
+    | 'no_days_configured'
+    | 'paid_tickets_sold'
+    | 'deadline_expired';
+  reason: string;
+  deadlineMs: number | null;
+  deadlineFormatted?: string;
+  msRemaining: number;
+  daysRemainingCeil: number;
+  remainingLabel?: string;
+}
+
+export function getBarCancellationPolicyState(params: {
+  event: Pick<EventProposal, 'id' | 'status' | 'date' | 'startTime' | 'endTime' | 'ticketPriceARS' | 'cancelDaysBefore'>;
+  reservations?: Array<Pick<PublicEventReservation, 'eventId' | 'status' | 'totalARS'>>;
+  nowMs?: number;
+}): CancellationPolicyState {
+  const { event, reservations = [], nowMs = Date.now() } = params;
+
+  if (event.status === 'cancelada' || isEventArchived(event, nowMs)) {
+    return {
+      canCancel: false,
+      urgentOnly: false,
+      code: 'read_only',
+      reason: 'Este evento se encuentra cerrado en modo solo lectura.',
+      deadlineMs: null,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  if (hasEventPurchasedPaidTickets(event, reservations)) {
+    return {
+      canCancel: false,
+      urgentOnly: true,
+      code: 'paid_tickets_sold',
+      reason: `Este evento tiene entradas pagas compradas/reservadas. Solo podés enviar una urgencia al administrador (${ADMIN_URGENCY_EMAIL}).`,
+      deadlineMs: null,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const deadlineMs = getCancelDeadlineTimestampMs(event.date, event.startTime, event.cancelDaysBefore);
+  if (deadlineMs === null) {
+    return {
+      canCancel: false,
+      urgentOnly: true,
+      code: 'no_days_configured',
+      reason: `No configuraste días previos para cancelar al crear este evento. Solo podés enviar una urgencia al administrador (${ADMIN_URGENCY_EMAIL}).`,
+      deadlineMs: null,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const deadlineFormatted = formatActionTimestamp(new Date(deadlineMs).toISOString());
+  if (nowMs >= deadlineMs) {
+    return {
+      canCancel: false,
+      urgentOnly: true,
+      code: 'deadline_expired',
+      reason: `Venció el plazo de cancelación (${deadlineFormatted}). Solo podés enviar una urgencia al administrador (${ADMIN_URGENCY_EMAIL}).`,
+      deadlineMs,
+      deadlineFormatted,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const msRemaining = deadlineMs - nowMs;
+  const remainingLabel = formatRemainingCancelTime(msRemaining);
+  return {
+    canCancel: true,
+    urgentOnly: false,
+    code: 'allowed',
+    reason: `Podés cancelar hasta ${deadlineFormatted} (quedan ${remainingLabel}).`,
+    deadlineMs,
+    deadlineFormatted,
+    msRemaining,
+    daysRemainingCeil: Math.ceil(msRemaining / (24 * 60 * 60 * 1000)),
+    remainingLabel,
+  };
+}
+
+export function getMusicianCancellationPolicyState(params: {
+  bid: Pick<MusicianSlotBid, 'slotId' | 'status' | 'retracted' | 'cancelDaysBefore'>;
+  event: Pick<EventProposal, 'status' | 'date' | 'startTime' | 'endTime' | 'slots'>;
+  nowMs?: number;
+}): CancellationPolicyState {
+  const { bid, event, nowMs = Date.now() } = params;
+
+  if (
+    bid.retracted ||
+    bid.status === 'rechazada' ||
+    event.status === 'cancelada' ||
+    isEventArchived(event, nowMs)
+  ) {
+    return {
+      canCancel: false,
+      urgentOnly: false,
+      code: 'read_only',
+      reason: 'Esta postulación o evento ya se encuentra cerrada.',
+      deadlineMs: null,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const slot = event.slots.find((s) => s.id === bid.slotId);
+  const effectiveStartTime = slot?.startTime || event.startTime || '21:00';
+  const deadlineMs = getCancelDeadlineTimestampMs(event.date, effectiveStartTime, bid.cancelDaysBefore);
+
+  if (deadlineMs === null) {
+    return {
+      canCancel: false,
+      urgentOnly: true,
+      code: 'no_days_configured',
+      reason: `No cargaste días de cancelación al proponer este horario. Solo podés enviar una urgencia al administrador (${ADMIN_URGENCY_EMAIL}).`,
+      deadlineMs: null,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const deadlineFormatted = formatActionTimestamp(new Date(deadlineMs).toISOString());
+  if (nowMs >= deadlineMs) {
+    return {
+      canCancel: false,
+      urgentOnly: true,
+      code: 'deadline_expired',
+      reason: `Venció el plazo para cancelar (${deadlineFormatted}). Solo podés enviar una urgencia al administrador (${ADMIN_URGENCY_EMAIL}).`,
+      deadlineMs,
+      deadlineFormatted,
+      msRemaining: 0,
+      daysRemainingCeil: 0,
+    };
+  }
+
+  const msRemaining = deadlineMs - nowMs;
+  const remainingLabel = formatRemainingCancelTime(msRemaining);
+  return {
+    canCancel: true,
+    urgentOnly: false,
+    code: 'allowed',
+    reason: `Podés cancelar hasta ${deadlineFormatted} (quedan ${remainingLabel}).`,
+    deadlineMs,
+    deadlineFormatted,
+    msRemaining,
+    daysRemainingCeil: Math.ceil(msRemaining / (24 * 60 * 60 * 1000)),
+    remainingLabel,
+  };
 }
 
 export function formatActionTimestamp(raw?: string): string {
@@ -906,20 +1129,16 @@ export function validateRetractSlotBid(params: {
     };
   }
 
-  const slot = event.slots.find((s) => s.id === bid.slotId);
-  const effectiveStartTime = slot?.startTime || event.startTime || '21:00';
-  const eventDateTime = new Date(`${event.date}T${effectiveStartTime}`).getTime();
-  const hoursRemaining = (eventDateTime - nowMs) / (1000 * 60 * 60);
-
-  if (!Number.isFinite(hoursRemaining) || hoursRemaining < 24) {
-    const shownHours = Number.isFinite(hoursRemaining) ? Math.max(0, Math.floor(hoursRemaining)) : 0;
+  const policy = getMusicianCancellationPolicyState({ bid, event, nowMs });
+  if (!policy.canCancel) {
     return {
       allowed: false,
-      reason: `No es posible retractarse: faltan ${shownHours} hs para el inicio del show (la app solo permite retractarse con un mínimo de 24 horas de antelación).`,
-      hoursRemaining,
+      reason: policy.reason,
+      hoursRemaining: 0,
     };
   }
 
+  const hoursRemaining = policy.msRemaining / (1000 * 60 * 60);
   return { allowed: true, hoursRemaining };
 }
 
@@ -1392,6 +1611,7 @@ export function applyCancelEventTransition(params: {
   eventId: string;
   actorVenueId?: string;
   reason?: string;
+  reservations?: Array<Pick<PublicEventReservation, 'eventId' | 'status' | 'totalARS'>>;
   nowMs?: number;
   nowIso?: string;
   historyIdPrefix?: string;
@@ -1410,6 +1630,7 @@ export function applyCancelEventTransition(params: {
     eventId,
     actorVenueId,
     reason,
+    reservations = [],
     nowMs = Date.now(),
     nowIso = new Date(nowMs).toISOString(),
     historyIdPrefix = makeUniqueId('h-cancel'),
@@ -1427,6 +1648,11 @@ export function applyCancelEventTransition(params: {
   }
   if (target.status === 'cancelada') {
     return { ok: false, message: 'Este evento ya fue cancelado.' };
+  }
+
+  const barPolicy = getBarCancellationPolicyState({ event: target, reservations, nowMs });
+  if (!barPolicy.canCancel) {
+    return { ok: false, message: barPolicy.reason };
   }
 
   const closedBids: MusicianSlotBid[] = [];

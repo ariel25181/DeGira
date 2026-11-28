@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventProposal, LiveShowConfirmed, MusicianSlotBid } from '../types/index.ts';
 import {
+  ADMIN_URGENCY_EMAIL,
   applyBidResponseTransition,
   applyBidRetractionTransition,
   applyBidSubmissionTransition,
@@ -13,10 +14,13 @@ import {
   canSubmitBidForSlot,
   detectMusicianDateClashes,
   doTimeRangesOverlap,
+  getBarCancellationPolicyState,
   getBidLastActionInfo,
   getEffectiveEventStatus,
   getEventLastActionInfo,
+  getMusicianCancellationPolicyState,
   getSlotDisplayState,
+  hasEventPurchasedPaidTickets,
   isBidVisibleToViewer,
   isEventArchived,
   isEventVisibleInConvocatorias,
@@ -1197,7 +1201,7 @@ test('35. rejecting a counteroffer when event is in propuesta keeps event in pro
 test('36. enforces exact 24h cutoff using slot.startTime: allows 24h01m before slot, blocks 23h59m before slot', () => {
   // Event starts 20:30, but slot-3 starts 22:30 -> effective startTime MUST be 22:30!
   const ev = makeProposal({ date: '2026-12-20', startTime: '20:30' });
-  const bid = makeBid({ slotId: 'slot-3', status: 'aceptada' });
+  const bid = makeBid({ slotId: 'slot-3', status: 'aceptada', cancelDaysBefore: 1 });
 
   const msJustUnder24h = new Date('2026-12-19T22:31:00').getTime(); // 23h 59m remaining
   const failRes = validateRetractSlotBid({
@@ -1220,7 +1224,7 @@ test('36. enforces exact 24h cutoff using slot.startTime: allows 24h01m before s
 
 test('37. retracts a blocked pendiente_bar bid (>=24h) -> sets retracted=true, frees slot, and allows Musician 2 to bid', () => {
   let events = [makeProposal({ slots: [{ id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'negociando' }] })];
-  let bids = [makeBid({ id: 'b1', status: 'pendiente_bar' })];
+  let bids = [makeBid({ id: 'b1', status: 'pendiente_bar', cancelDaysBefore: 1 })];
   const nowFar = new Date('2026-12-01T12:00:00').getTime();
 
   const ret = applyBidRetractionTransition({
@@ -1245,7 +1249,7 @@ test('37. retracts a blocked pendiente_bar bid (>=24h) -> sets retracted=true, f
 
 test('38. retracts a contraoferta_bar bid (>=24h) -> unlocks blocked slot to libre cleanly', () => {
   const ev = makeProposal({ slots: [{ id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'negociando' }] });
-  const bid = makeBid({ id: 'b1', status: 'contraoferta_bar', proposedCachetARS: 55000 });
+  const bid = makeBid({ id: 'b1', status: 'contraoferta_bar', proposedCachetARS: 55000, cancelDaysBefore: 1 });
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
     slotBids: [bid],
@@ -1260,7 +1264,7 @@ test('38. retracts a contraoferta_bar bid (>=24h) -> unlocks blocked slot to lib
 
 test('39. retracts Musician 2 contraoferta_musico bid (>=24h) -> opens Bar 2 slot for Musician 1', () => {
   const ev = makeBar2Proposal({ slots: [{ id: 'b2-slot-1', startTime: '21:00', endTime: '22:15', requiredMusicians: 2, status: 'negociando' }] });
-  const bid = makeBid({ id: 'b-m2', eventId: ev.id, slotId: 'b2-slot-1', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'contraoferta_musico', proposedCachetARS: 75000 });
+  const bid = makeBid({ id: 'b-m2', eventId: ev.id, slotId: 'b2-slot-1', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'contraoferta_musico', proposedCachetARS: 75000, cancelDaysBefore: 1 });
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
     slotBids: [bid],
@@ -1280,7 +1284,7 @@ test('40. retracts ONLY accepted slot on para_publicar -> clears assigned musici
       { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'libre' },
     ],
   });
-  const bid = makeBid({ id: 'b1', status: 'aceptada' });
+  const bid = makeBid({ id: 'b1', status: 'aceptada', cancelDaysBefore: 1 });
 
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
@@ -1307,8 +1311,8 @@ test('41. retracts one accepted slot on para_publicar while Musician 2 remains c
       { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-2', assignedMusicianName: 'Músico Test 2', agreedCachetARS: 65000 },
     ],
   });
-  const bid1 = makeBid({ id: 'b1', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' });
-  const bid2 = makeBid({ id: 'b2', slotId: 'slot-2', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'aceptada', proposedCachetARS: 65000 });
+  const bid1 = makeBid({ id: 'b1', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada', cancelDaysBefore: 1 });
+  const bid2 = makeBid({ id: 'b2', slotId: 'slot-2', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'aceptada', proposedCachetARS: 65000, cancelDaysBefore: 1 });
 
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
@@ -1332,7 +1336,7 @@ test('42. retracts ONLY accepted slot on publicada event -> reverts publicada ba
       { id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-1', assignedMusicianName: 'Músico Test 1', agreedCachetARS: 60000 },
     ],
   });
-  const bid = makeBid({ id: 'b1', status: 'aceptada' });
+  const bid = makeBid({ id: 'b1', status: 'aceptada', cancelDaysBefore: 1 });
 
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
@@ -1363,8 +1367,8 @@ test('43. retracts Musician 2 accepted slot on publicada event when Musician 1 r
       { id: 'slot-2', startTime: '21:30', endTime: '22:30', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-2', assignedMusicianName: 'Músico Test 2', agreedCachetARS: 70000 },
     ],
   });
-  const bid1 = makeBid({ id: 'b1', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' });
-  const bid2 = makeBid({ id: 'b2', slotId: 'slot-2', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'aceptada' });
+  const bid1 = makeBid({ id: 'b1', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada', cancelDaysBefore: 1 });
+  const bid2 = makeBid({ id: 'b2', slotId: 'slot-2', musicianId: 'mus-2', musicianName: 'Músico Test 2', status: 'aceptada', cancelDaysBefore: 1 });
 
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
@@ -1389,7 +1393,7 @@ test('44. blocks retraction on accepted bid when <24h remain and keeps slot + ev
       { id: 'slot-1', startTime: '20:30', endTime: '21:30', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-1', assignedMusicianName: 'Músico Test 1', agreedCachetARS: 60000 },
     ],
   });
-  const bid = makeBid({ id: 'b1', status: 'aceptada' });
+  const bid = makeBid({ id: 'b1', status: 'aceptada', cancelDaysBefore: 1 });
   const ret = applyBidRetractionTransition({
     eventProposals: [ev],
     slotBids: [bid],
@@ -1438,7 +1442,7 @@ test('46. end-to-end handover: Mus 1 wins Bar 1 slot -> retracts accepted -> Mus
   const s1 = applyBidSubmissionTransition({
     eventProposals: events,
     slotBids: bids,
-    bid: makeBid({ id: 'b-m1', slotId: 'slot-1', musicianId: 'mus-1', proposedCachetARS: 60000 }),
+    bid: makeBid({ id: 'b-m1', slotId: 'slot-1', musicianId: 'mus-1', proposedCachetARS: 60000, cancelDaysBefore: 1 }),
   });
   assert.equal(s1.ok, true);
   events = s1.eventProposals;
@@ -1776,8 +1780,8 @@ test('54. archivePastEvents transitions past active events to archivado with aud
 });
 
 test('55. applyCancelEventTransition sets cancelada, closes active bids with history, and enforces ownership/status guards', () => {
-  const ev = makeProposal({ id: 'ev-to-cancel', date: '2099-06-15', status: 'para_publicar' });
-  const archEv = makeProposal({ id: 'ev-arch', date: '2026-01-10', status: 'archivado' });
+  const ev = makeProposal({ id: 'ev-to-cancel', date: '2099-06-15', status: 'para_publicar', cancelDaysBefore: 5 });
+  const archEv = makeProposal({ id: 'ev-arch', date: '2026-01-10', status: 'archivado', cancelDaysBefore: 5 });
   const bids: MusicianSlotBid[] = [
     makeBid({ id: 'b-act', eventId: 'ev-to-cancel', slotId: 'slot-1', musicianId: 'mus-1', status: 'aceptada' }),
     makeBid({ id: 'b-pend', eventId: 'ev-to-cancel', slotId: 'slot-2', musicianId: 'mus-2', status: 'pendiente_bar' }),
@@ -1931,6 +1935,148 @@ test('57. read-only enforcement blocks bidding, responding, retracting, and publ
   assert.equal(isEventVisibleInConvocatorias({ proposal: canEv, role: 'espectador' }), false);
   assert.equal(isEventVisibleInConvocatorias({ proposal: archEv, role: 'musico', musicianId: 'mus-1' }), false);
   assert.equal(isEventVisibleInConvocatorias({ proposal: archEv, role: 'bar', viewerVenueId: 'venue-1', barStatusFilter: 'archivado' }), true);
+});
+
+test('58. Bar omitting cancelDaysBefore cannot cancel directly and gets urgentOnly admin option', () => {
+  const ev = makeProposal({ id: 'ev-no-days', date: '2099-06-15', cancelDaysBefore: undefined });
+  const nowMs = new Date(2026, 10, 28, 12, 0, 0).getTime();
+
+  const policy = getBarCancellationPolicyState({ event: ev, reservations: [], nowMs });
+  assert.equal(policy.canCancel, false);
+  assert.equal(policy.urgentOnly, true);
+  assert.equal(policy.code, 'no_days_configured');
+  assert.ok(policy.reason.includes(ADMIN_URGENCY_EMAIL));
+
+  const res = applyCancelEventTransition({
+    eventProposals: [ev],
+    slotBids: [],
+    eventId: ev.id,
+    actorVenueId: 'venue-1',
+    nowMs,
+  });
+  assert.equal(res.ok, false);
+});
+
+test('59. Paid-ticket lock: Bar cannot cancel paid event once active reservations exist, but cancelled/expired do not lock', () => {
+  const paidEv = makeProposal({
+    id: 'ev-paid-lock',
+    date: '2099-06-15',
+    startTime: '21:00',
+    ticketPriceARS: 5000,
+    cancelDaysBefore: 7,
+    status: 'publicada',
+  });
+  const nowMs = new Date(2026, 10, 28, 12, 0, 0).getTime();
+
+  // Only cancelled/expired reservations -> still cancellable
+  const cancelledRes = [{ eventId: 'ev-paid-lock', status: 'cancelada' as const, totalARS: 5000 }];
+  const expiredRes = [{ eventId: 'ev-paid-lock', status: 'expirada' as const, totalARS: 5000 }];
+  assert.equal(hasEventPurchasedPaidTickets(paidEv, cancelledRes), false);
+  assert.equal(hasEventPurchasedPaidTickets(paidEv, expiredRes), false);
+  assert.equal(getBarCancellationPolicyState({ event: paidEv, reservations: cancelledRes, nowMs }).canCancel, true);
+
+  // Active paid reservation -> locked & urgentOnly
+  const activeRes = [{ eventId: 'ev-paid-lock', status: 'confirmada' as const, totalARS: 10000 }];
+  assert.equal(hasEventPurchasedPaidTickets(paidEv, activeRes), true);
+  const lockedPolicy = getBarCancellationPolicyState({ event: paidEv, reservations: activeRes, nowMs });
+  assert.equal(lockedPolicy.canCancel, false);
+  assert.equal(lockedPolicy.urgentOnly, true);
+  assert.equal(lockedPolicy.code, 'paid_tickets_sold');
+  assert.ok(lockedPolicy.reason.includes(ADMIN_URGENCY_EMAIL));
+
+  const blockedCancel = applyCancelEventTransition({
+    eventProposals: [paidEv],
+    slotBids: [],
+    eventId: 'ev-paid-lock',
+    actorVenueId: 'venue-1',
+    reservations: activeRes,
+    nowMs,
+  });
+  assert.equal(blockedCancel.ok, false);
+});
+
+test('60. Free event (ticketPriceARS: 0) with confirmed free reservations remains cancellable within cancelDaysBefore', () => {
+  const freeEv = makeProposal({
+    id: 'ev-free-ok',
+    date: '2099-06-15',
+    startTime: '21:00',
+    ticketPriceARS: 0,
+    cancelDaysBefore: 7,
+    status: 'publicada',
+  });
+  const nowMs = new Date(2026, 10, 28, 12, 0, 0).getTime();
+  const freeReservations = [{ eventId: 'ev-free-ok', status: 'confirmada' as const, totalARS: 0 }];
+
+  assert.equal(hasEventPurchasedPaidTickets(freeEv, freeReservations), false);
+  const policy = getBarCancellationPolicyState({ event: freeEv, reservations: freeReservations, nowMs });
+  assert.equal(policy.canCancel, true);
+  assert.equal(policy.code, 'allowed');
+
+  const okCancel = applyCancelEventTransition({
+    eventProposals: [freeEv],
+    slotBids: [],
+    eventId: 'ev-free-ok',
+    actorVenueId: 'venue-1',
+    reservations: freeReservations,
+    nowMs,
+  });
+  assert.equal(okCancel.ok, true);
+  assert.equal(okCancel.updatedEvent.status, 'cancelada');
+});
+
+test('61. Bar minute-exact deadline removal: allowed 1 min before deadline, blocked at exact deadline and 1 min after', () => {
+  const ev = makeProposal({
+    id: 'ev-exact-min',
+    date: '2026-12-20',
+    startTime: '21:00',
+    cancelDaysBefore: 7,
+  });
+  // 2026-12-20 21:00 minus 7 days = 2026-12-13 21:00 local time
+  const deadlineMs = new Date(2026, 11, 13, 21, 0, 0, 0).getTime();
+
+  const oneMinBefore = getBarCancellationPolicyState({ event: ev, reservations: [], nowMs: deadlineMs - 60_000 });
+  assert.equal(oneMinBefore.canCancel, true);
+  assert.equal(oneMinBefore.code, 'allowed');
+
+  const exactDeadline = getBarCancellationPolicyState({ event: ev, reservations: [], nowMs: deadlineMs });
+  assert.equal(exactDeadline.canCancel, false);
+  assert.equal(exactDeadline.urgentOnly, true);
+  assert.equal(exactDeadline.code, 'deadline_expired');
+
+  const oneMinAfter = getBarCancellationPolicyState({ event: ev, reservations: [], nowMs: deadlineMs + 60_000 });
+  assert.equal(oneMinAfter.canCancel, false);
+  assert.equal(oneMinAfter.urgentOnly, true);
+  assert.equal(oneMinAfter.code, 'deadline_expired');
+});
+
+test('62. Musician cancellation policy requires cancelDaysBefore and expires at exact minute', () => {
+  const ev = makeProposal({
+    id: 'ev-mus-pol',
+    date: '2026-12-20',
+    startTime: '20:30',
+    slots: [{ id: 'slot-1', startTime: '22:00', endTime: '23:00', requiredMusicians: 2, status: 'confirmado', assignedMusicianId: 'mus-1' }],
+  });
+
+  const noDaysBid = makeBid({ id: 'b-no-days', eventId: 'ev-mus-pol', slotId: 'slot-1', status: 'aceptada', cancelDaysBefore: undefined });
+  const deadlineCheckMs = new Date(2026, 11, 10, 12, 0, 0, 0).getTime();
+  const noDaysPol = getMusicianCancellationPolicyState({ bid: noDaysBid, event: ev, nowMs: deadlineCheckMs });
+  assert.equal(noDaysPol.canCancel, false);
+  assert.equal(noDaysPol.urgentOnly, true);
+  assert.equal(noDaysPol.code, 'no_days_configured');
+  assert.ok(noDaysPol.reason.includes(ADMIN_URGENCY_EMAIL));
+
+  // Slot starts 22:00 on Dec 20 -> 3 days before = Dec 17 22:00
+  const daysBid = makeBid({ id: 'b-3d', eventId: 'ev-mus-pol', slotId: 'slot-1', status: 'aceptada', cancelDaysBefore: 3 });
+  const slotDeadlineMs = new Date(2026, 11, 17, 22, 0, 0, 0).getTime();
+
+  const beforePol = getMusicianCancellationPolicyState({ bid: daysBid, event: ev, nowMs: slotDeadlineMs - 60_000 });
+  assert.equal(beforePol.canCancel, true);
+  assert.equal(beforePol.code, 'allowed');
+
+  const afterPol = getMusicianCancellationPolicyState({ bid: daysBid, event: ev, nowMs: slotDeadlineMs + 60_000 });
+  assert.equal(afterPol.canCancel, false);
+  assert.equal(afterPol.urgentOnly, true);
+  assert.equal(afterPol.code, 'deadline_expired');
 });
 
 

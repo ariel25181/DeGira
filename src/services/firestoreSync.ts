@@ -147,6 +147,10 @@ function sanitizeEventProposalPayload(ev: EventProposal, uid: string): Record<st
     baseCachetARS: ev.cachetType === 'a_la_gorra' ? 0 : Math.max(0, Number(ev.baseCachetARS) || 0),
     cachetType: ev.cachetType === 'a_la_gorra' ? 'a_la_gorra' : 'fijo',
     ticketPriceARS: ev.ticketPriceARS !== undefined ? Math.max(0, Number(ev.ticketPriceARS) || 0) : undefined,
+    cancelDaysBefore:
+      ev.cancelDaysBefore !== undefined && Number.isFinite(Number(ev.cancelDaysBefore))
+        ? Math.max(0, Math.min(365, Math.floor(Number(ev.cancelDaysBefore))))
+        : undefined,
     targetGenres: clampStringArray(ev.targetGenres, 12, 60),
     slots: sanitizeSlots(ev.slots),
     rider: ev.rider || {
@@ -221,6 +225,10 @@ function sanitizeSlotBidPayload(bid: MusicianSlotBid, uid: string): Record<strin
     reminderCount: bid.reminderCount !== undefined ? Math.max(0, Number(bid.reminderCount)) : undefined,
     retracted: bid.retracted,
     retractedAt: bid.retractedAt ? clampString(bid.retractedAt, 60) : undefined,
+    cancelDaysBefore:
+      bid.cancelDaysBefore !== undefined && Number.isFinite(Number(bid.cancelDaysBefore))
+        ? Math.max(0, Math.min(365, Math.floor(Number(bid.cancelDaysBefore))))
+        : undefined,
     status: safeStatus,
     history: sanitizeBidHistory(bid.history),
     visibility: 'public',
@@ -501,6 +509,9 @@ export async function syncReservationCreate(
     const eventSnap = await getDoc(doc(db, 'eventProposals', res.eventId));
     const venueOwnerUid = eventSnap.exists() ? (eventSnap.data()?.ownerUid as string | undefined) : undefined;
 
+    const safeTotal = Math.max(0, Number(res.totalARS) || 0);
+    const isFreeConfirmed = safeTotal === 0 && res.status === 'confirmada';
+
     await setDoc(
       doc(db, 'publicEventReservations', res.id),
       stripUndefined({
@@ -520,9 +531,13 @@ export async function syncReservationCreate(
         userName: clampString(res.userName, 120, 'Espectador'),
         // Sin userEmail en documento compartido (aislamiento PII)
         partySize: Math.max(1, Math.min(50, Number(res.partySize) || 1)),
-        totalARS: Math.max(0, Number(res.totalARS) || 0),
+        totalARS: safeTotal,
         expiresAt: Number(res.expiresAt) || Date.now() + 8 * 60 * 1000,
-        status: 'pendiente_pago',
+        status: isFreeConfirmed ? 'confirmada' : 'pendiente_pago',
+        qrTicketCode:
+          isFreeConfirmed && res.qrTicketCode ? clampString(res.qrTicketCode, 160) : undefined,
+        qrEmailSent: isFreeConfirmed && res.qrEmailSent ? true : undefined,
+        checkInStatus: isFreeConfirmed ? 'pending' : undefined,
         ownerUid: uid,
         createdAt: clampString(res.createdAt, 60, new Date().toISOString()),
         createdAtTimestamp: serverTimestamp(),

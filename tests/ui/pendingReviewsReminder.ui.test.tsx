@@ -112,7 +112,7 @@ describe('2-Hour Post-Event Review Window & On-Screen Login Reminder', () => {
 
     // Login reminder dialog should appear on screen with detailed pending rating info
     const dialog = screen.getByRole('dialog');
-    within(dialog).getByText(/Tenés \d+ calificaciones?/);
+    within(dialog).getByText(/Tenés \d+ calificaci[oó]n(?:es)?/);
     within(dialog).getByText(/2 horas después/);
     within(dialog).getByText('Sesión Blues & Jazz Nocturna');
     assert.ok(within(dialog).getAllByText(/Bar Test 1/).length >= 1);

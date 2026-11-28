@@ -8,6 +8,7 @@ import { SessionProvider } from '../../src/context/SessionContext.tsx';
 import { ProfileView } from '../../src/components/ProfileView.tsx';
 import { CatalogView } from '../../src/components/CatalogView.tsx';
 import { ShowDetailModal } from '../../src/components/modals/ShowDetailModal.tsx';
+import { CreateEventProposalModal } from '../../src/components/modals/CreateEventProposalModal.tsx';
 import type { LiveShowConfirmed } from '../../src/types/index.ts';
 import { offsetIsoDate } from '../../src/utils/bookingLogic.ts';
 
@@ -231,5 +232,87 @@ describe('Spectator Profile & Mercado Pago Reservation Flow', () => {
     });
     assert.ok(screen.getByText('Músico Test 2 (21:00 a 22:15 hs)'));
     assert.ok(screen.getByText('Músico Test 1 (22:45 a 00:15 hs)'));
+  });
+
+  it('Bar creates free ($0) event with cancelDaysBefore -> CatalogView issues instant confirmada QR ticket without 8-min hold', async () => {
+    localStorage.clear();
+    localStorage.setItem('suena_ba_v3_role', 'bar');
+    localStorage.setItem('suena_ba_v3_activeVenueId', 'venue-1');
+    localStorage.setItem('suena_ba_v3_eventProposals', JSON.stringify([]));
+
+    let closed = false;
+    const { unmount } = render(
+      <SessionProvider client={mockClient}>
+        <AppProvider>
+          <CreateEventProposalModal isOpen={true} onClose={() => { closed = true; }} />
+        </AppProvider>
+      </SessionProvider>
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/Noche de Jazz/i), {
+        target: { value: 'Festival Entrada Libre' },
+      });
+      fireEvent.click(screen.getByTestId('create-event-ticket-free'));
+      fireEvent.change(screen.getByTestId('create-event-cancel-days-input'), {
+        target: { value: '4' },
+      });
+    });
+
+    screen.getByText(/el público obtiene confirmación y pase QR al instante/i);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Crear Propuesta de Evento/i }));
+    });
+    assert.strictEqual(closed, true);
+
+    const created = JSON.parse(localStorage.getItem('suena_ba_v3_eventProposals') || '[]');
+    assert.strictEqual(created.length, 1);
+    assert.strictEqual(created[0].ticketPriceARS, 0);
+    assert.strictEqual(created[0].cancelDaysBefore, 4);
+
+    // Mark event publicada with a confirmed slot and switch to spectator CatalogView
+    created[0].status = 'publicada';
+    created[0].slots[0] = {
+      ...created[0].slots[0],
+      status: 'confirmado',
+      assignedMusicianId: 'mus-1',
+      assignedMusicianName: 'Músico Test 1',
+      agreedCachetARS: 50000,
+    };
+    localStorage.setItem('suena_ba_v3_eventProposals', JSON.stringify(created));
+    localStorage.setItem('suena_ba_v3_role', 'espectador');
+    unmount();
+
+    await act(async () => {
+      render(
+        <SessionProvider client={mockClient}>
+          <AppProvider>
+            <CatalogView onViewVenue={() => {}} onViewMusician={() => {}} />
+          </AppProvider>
+        </SessionProvider>
+      );
+    });
+
+    assert.ok(screen.getByTestId(`catalog-price-${created[0].id}`).textContent?.includes('Entrada Gratis ($ 0)'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Reservar Lugar Gratis/i }));
+    });
+    assert.ok(screen.getByTestId('booking-modal-total').textContent?.includes('Gratis ($ 0)'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Confirmar Entrada Gratis/i }));
+    });
+
+    screen.getByText(/¡Entrada Gratis Confirmada con Pase QR!/i);
+    screen.getByTestId('free-ticket-qr-code');
+
+    const reservations = JSON.parse(localStorage.getItem('suena_ba_v3_publicEventReservations') || '[]');
+    const freeRes = reservations.find((r: any) => r.eventId === created[0].id);
+    assert.ok(freeRes);
+    assert.strictEqual(freeRes.status, 'confirmada');
+    assert.strictEqual(freeRes.totalARS, 0);
+    assert.ok(freeRes.qrTicketCode);
   });
 });

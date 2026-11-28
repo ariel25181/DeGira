@@ -28,7 +28,9 @@ export interface SentEmailRecord {
     | 'proposal_to_bar'
     | 'negotiation_update_musician'
     | 'reservation_created'
-    | 'reservation_expired';
+    | 'reservation_expired'
+    | 'event_cancelled_notice'
+    | 'admin_urgency';
   sentAt: string;
 }
 
@@ -83,6 +85,7 @@ export function sendQrTicketEmail(params: {
   eventTime: string;
   partySize: number;
   qrTicketCode: string;
+  isFree?: boolean;
   targetEntityId?: string;
   senderEntityId?: string;
   fromEmail?: string;
@@ -90,6 +93,10 @@ export function sendQrTicketEmail(params: {
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
     params.qrTicketCode
   )}`;
+
+  const confirmationLine = params.isFree
+    ? `Tu entrada gratuita ($ 0) para ${params.eventTitle} fue confirmada al instante por ${params.venueName}.`
+    : `Tu pago para ${params.eventTitle} fue confirmado por ${params.venueName}.`;
 
   return saveEmailRecord({
     to: params.toEmail,
@@ -101,7 +108,7 @@ export function sendQrTicketEmail(params: {
     subject: `🎟️ Tu entrada y Pase QR para ${params.eventTitle} en ${params.venueName}`,
     bodyText: `¡Hola ${params.userName}!
 
-Tu pago para ${params.eventTitle} fue confirmado por ${params.venueName}.
+${confirmationLine}
 
 Detalles de tu reserva:
 - Fecha: ${params.eventDate} a las ${params.eventTime}
@@ -395,4 +402,83 @@ Equipo DeGira`,
     type: 'reservation_expired',
   });
 }
+
+/**
+ * 9. Aviso por cancelación de evento a músicos o espectadores con entrada
+ */
+export function sendEventCancelledEmail(params: {
+  toEmail: string;
+  recipientName: string;
+  targetRole: 'musico' | 'espectador';
+  eventTitle: string;
+  venueName: string;
+  eventDate: string;
+  reason?: string;
+  hadPaidTicket?: boolean;
+  targetEntityId?: string;
+  senderEntityId?: string;
+  fromEmail?: string;
+}) {
+  const roleBody =
+    params.targetRole === 'musico'
+      ? `Tu horario y compromiso para "${params.eventTitle}" quedaron liberados automáticamente.`
+      : params.hadPaidTicket
+      ? `Tu reserva/entrada para "${params.eventTitle}" fue cancelada por el bar. Contactate con el local o administración para gestionar la devolución.`
+      : `Tu reserva gratuita para "${params.eventTitle}" fue cancelada por el bar.`;
+
+  return saveEmailRecord({
+    to: params.toEmail,
+    targetRole: params.targetRole,
+    targetEntityId: params.targetEntityId,
+    senderRole: 'bar',
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.fromEmail,
+    subject: `🚫 Evento cancelado: ${params.eventTitle} en ${params.venueName}`,
+    bodyText: `Hola ${params.recipientName},
+
+${params.venueName} canceló el evento "${params.eventTitle}" previsto para el ${params.eventDate}.${
+      params.reason?.trim() ? `\nMotivo informado: ${params.reason.trim()}` : ''
+    }
+
+${roleBody}
+
+Equipo DeGira`,
+    type: 'event_cancelled_notice',
+  });
+}
+
+/**
+ * 10. Urgencia al administrador (ariel.najlis@gmail.com)
+ */
+export function sendAdminUrgencyEmail(params: {
+  senderRole: 'bar' | 'musico';
+  senderName: string;
+  senderEmail?: string;
+  senderEntityId?: string;
+  eventTitle: string;
+  venueName: string;
+  eventDate: string;
+  reason: string;
+}) {
+  return saveEmailRecord({
+    to: 'ariel.najlis@gmail.com',
+    senderRole: params.senderRole,
+    senderEntityId: params.senderEntityId,
+    fromEmail: params.senderEmail,
+    subject: `🚨 Urgencia de ${params.senderRole === 'bar' ? 'Bar' : 'Músico'} (${params.senderName}) — ${params.eventTitle}`,
+    bodyText: `Solicitud urgente de cancelación / asistencia para el administrador de DeGira:
+
+- Perfil solicitante: ${params.senderRole === 'bar' ? 'Bar' : 'Músico'} — ${params.senderName}${
+      params.senderEmail ? ` (${params.senderEmail})` : ''
+    }
+- Evento: ${params.eventTitle}
+- Local: ${params.venueName}
+- Fecha del evento: ${params.eventDate}
+- Detalle de la urgencia: ${params.reason}
+
+Enviado desde DeGira.`,
+    type: 'admin_urgency',
+  });
+}
+
 

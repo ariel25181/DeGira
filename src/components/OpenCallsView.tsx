@@ -25,6 +25,7 @@ import {
   Sliders,
   ExternalLink,
   Lock,
+  AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.tsx';
 import { CachetMode, EventProposal, EventSlot, MusicianSlotBid } from '../types/index.ts';
@@ -36,6 +37,8 @@ import {
   getEffectiveEventStatus,
   getEventLastActionInfo,
   getBidLastActionInfo,
+  getBarCancellationPolicyState,
+  ADMIN_URGENCY_EMAIL,
 } from '../utils/slotBidding.ts';
 import { CreateEventProposalModal } from './modals/CreateEventProposalModal.tsx';
 import { MusicianBidModal } from './modals/MusicianBidModal.tsx';
@@ -61,9 +64,11 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     currentMusician,
     eventProposals,
     slotBids,
+    publicEventReservations,
     publishEventProposal,
     updateEventProposal,
     cancelEventProposal,
+    sendAdminUrgency,
     respondToSlotBid,
   } = useApp();
 
@@ -79,10 +84,14 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   const [counterNote, setCounterNote] = useState<string>('');
   const [negError, setNegError] = useState<string | null>(null);
 
-  // Inline bar cancellation confirmation state (no window.confirm)
+  // Inline bar cancellation & admin urgency state (no window.confirm)
   const [confirmCancelEventId, setConfirmCancelEventId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState<string>('');
   const [cancelFeedback, setCancelFeedback] = useState<string | null>(null);
+  const [urgencyEventId, setUrgencyEventId] = useState<string | null>(null);
+  const [urgencyReason, setUrgencyReason] = useState<string>('');
+  const [urgencyError, setUrgencyError] = useState<string | null>(null);
+  const [nowTickMs, setNowTickMs] = useState<number>(() => Date.now());
 
   // Expandable proposal details
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
@@ -94,6 +103,11 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
   const [musicianStatusFilter, setMusicianStatusFilter] = useState<'abiertas' | 'cerradas' | 'archivados'>('abiertas');
 
   useEffect(() => {
+    const id = setInterval(() => setNowTickMs(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
     setCounterInputId(null);
     setCounterNote('');
     setCounterCachetType('fijo');
@@ -103,6 +117,9 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
     setConfirmCancelEventId(null);
     setCancelReason('');
     setCancelFeedback(null);
+    setUrgencyEventId(null);
+    setUrgencyReason('');
+    setUrgencyError(null);
   }, [role, currentVenue?.id, currentMusician?.id]);
 
   const musicianOpenProposals =
@@ -717,9 +734,30 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Bar actions to Move to 'para_publicar', 'publicada', or inline cancel */}
-                  {role === 'bar' && (
+                  {/* Bar actions to Move to 'para_publicar', 'publicada', or inline cancel / urgency */}
+                  {role === 'bar' && (() => {
+                    const barCancelPolicy = getBarCancellationPolicyState({
+                      event: proposal,
+                      reservations: publicEventReservations,
+                      nowMs: nowTickMs,
+                    });
+
+                    return (
                     <div className="pt-3 border-t border-slate-800 space-y-2.5">
+                      {!isReadOnly && (
+                        <div
+                          data-testid={`bar-cancel-policy-${proposal.id}`}
+                          className={`px-3 py-2 rounded-xl border text-[11px] flex items-start gap-2 ${
+                            barCancelPolicy.canCancel
+                              ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                              : 'bg-amber-950/30 border-amber-500/30 text-amber-200'
+                          }`}
+                        >
+                          <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>{barCancelPolicy.reason}</span>
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-xs text-slate-400">
                           Código de referencia: <span className="font-mono text-amber-400 font-bold">{proposal.eventCode}</span>
@@ -759,35 +797,55 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                               </button>
                             )}
 
-                            <button
-                              type="button"
-                              data-testid={`bar-cancel-event-${proposal.id}`}
-                              onClick={() => {
-                                setConfirmCancelEventId(
-                                  confirmCancelEventId === proposal.id ? null : proposal.id
-                                );
-                                setCancelReason('');
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Cancelar Evento</span>
-                            </button>
+                            {barCancelPolicy.canCancel ? (
+                              <button
+                                type="button"
+                                data-testid={`bar-cancel-event-${proposal.id}`}
+                                onClick={() => {
+                                  setConfirmCancelEventId(
+                                    confirmCancelEventId === proposal.id ? null : proposal.id
+                                  );
+                                  setUrgencyEventId(null);
+                                  setCancelReason('');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>Cancelar Evento</span>
+                              </button>
+                            ) : barCancelPolicy.urgentOnly ? (
+                              <button
+                                type="button"
+                                data-testid={`bar-urgency-btn-${proposal.id}`}
+                                onClick={() => {
+                                  setUrgencyEventId(
+                                    urgencyEventId === proposal.id ? null : proposal.id
+                                  );
+                                  setConfirmCancelEventId(null);
+                                  setUrgencyReason('');
+                                  setUrgencyError(null);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition-colors flex items-center gap-1"
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Enviar urgencia al administrador</span>
+                              </button>
+                            ) : null}
                           </div>
                         )}
                       </div>
 
-                      {!isReadOnly && confirmCancelEventId === proposal.id && (
+                      {!isReadOnly && barCancelPolicy.canCancel && confirmCancelEventId === proposal.id && (
                         <div
                           data-testid={`bar-cancel-confirm-panel-${proposal.id}`}
                           className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-2"
                         >
                           <p className="text-xs font-bold text-rose-200">
-                            ¿Confirmás cancelar "{proposal.title}"? Pasará a modo lectura y cerrará postulaciones activas.
+                            ¿Confirmás cancelar "{proposal.title}"? Pasará a modo lectura, liberará horarios y avisará a músicos y público con reserva.
                           </p>
                           <input
                             type="text"
-                            placeholder="Motivo opcional para músicos (ej: cambio de programación)..."
+                            placeholder="Motivo opcional para músicos y público (ej: cambio de programación)..."
                             value={cancelReason}
                             onChange={(e) => setCancelReason(e.target.value)}
                             className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100"
@@ -801,7 +859,7 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                                 if (res.ok) {
                                   setConfirmCancelEventId(null);
                                   setCancelReason('');
-                                  setCancelFeedback(`Se canceló "${proposal.title}". El evento quedó en modo lectura.`);
+                                  setCancelFeedback(`Se canceló "${proposal.title}". El evento quedó en modo lectura y se avisó a los involucrados.`);
                                 } else {
                                   setCancelFeedback(res.message || 'No se pudo cancelar el evento.');
                                 }
@@ -823,8 +881,65 @@ export const OpenCallsView: React.FC<OpenCallsViewProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {!isReadOnly && barCancelPolicy.urgentOnly && urgencyEventId === proposal.id && (
+                        <div
+                          data-testid={`bar-urgency-panel-${proposal.id}`}
+                          className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 space-y-2"
+                        >
+                          <p className="text-xs font-bold text-amber-200">
+                            Enviar solicitud urgente al administrador ({ADMIN_URGENCY_EMAIL}) para "{proposal.title}":
+                          </p>
+                          <input
+                            type="text"
+                            data-testid={`bar-urgency-input-${proposal.id}`}
+                            placeholder="Describí el motivo de fuerza mayor o urgencia..."
+                            value={urgencyReason}
+                            onChange={(e) => setUrgencyReason(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100"
+                          />
+                          {urgencyError && (
+                            <p className="text-[11px] text-rose-400 font-semibold">{urgencyError}</p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid={`bar-send-urgency-${proposal.id}`}
+                              onClick={() => {
+                                const res = sendAdminUrgency({
+                                  eventId: proposal.id,
+                                  reason: urgencyReason,
+                                });
+                                if (res.ok) {
+                                  setUrgencyEventId(null);
+                                  setUrgencyReason('');
+                                  setUrgencyError(null);
+                                  setCancelFeedback(res.message);
+                                } else {
+                                  setUrgencyError(res.message);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
+                            >
+                              Enviar a {ADMIN_URGENCY_EMAIL}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUrgencyEventId(null);
+                                setUrgencyReason('');
+                                setUrgencyError(null);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Toggle expand to see bids & negotiation */}
                   {proposalBids.length > 0 && (
